@@ -1,0 +1,1314 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tablero Gastos Cloud</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React y ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    
+    <!-- Dependencias de Recharts -->
+    <script crossorigin src="https://unpkg.com/prop-types@15.8.1/prop-types.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-is@18.2.0/umd/react-is.production.min.js"></script>
+    
+    <!-- Babel -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- Recharts -->
+    <script crossorigin src="https://unpkg.com/recharts@2.1.12/umd/Recharts.js"></script>
+
+    <!-- Mapa de Importación para Firebase (ESM) -->
+    <script type="importmap">
+      {
+        "imports": {
+          "firebase/app": "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js",
+          "firebase/auth": "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js",
+          "firebase/firestore": "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js"
+        }
+      }
+    </script>
+
+    <style>
+        /* Estilos generales y animaciones */
+        body { background-color: #f8fafc; }
+        .animate-fadeIn { animation: fadeIn 0.3s ease-out forwards; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        /* Personalizar scrollbar */
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f1f5f9; border-radius: 4px;}
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+        /* Optimizaciones para Impresión / PDF */
+        @media print {
+            body { background-color: white; }
+            .no-print { display: none !important; }
+            .print-w-full { width: 100% !important; max-width: 100% !important; margin: 0 !important; padding: 0 !important;}
+            .shadow-sm, .shadow-md { box-shadow: none !important; border: 1px solid #e2e8f0 !important; }
+            canvas { max-width: 100% !important; }
+        }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel" data-type="module">
+        import { initializeApp } from 'firebase/app';
+        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from 'firebase/auth';
+        import { getFirestore, collection, doc, setDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+
+        const { useState, useMemo, useEffect, useCallback } = React;
+        const { LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, BarChart, Bar } = window.Recharts;
+
+        // --- ICONOS SVG ---
+        const IconDashboard = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="9"></rect><rect x="14" y="3" width="7" height="5"></rect><rect x="14" y="12" width="7" height="9"></rect><rect x="3" y="16" width="7" height="5"></rect></svg>;
+        const IconList = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>;
+        const IconSplit = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>;
+        const IconSettings = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>;
+        const IconDownload = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>;
+        const IconPrinter = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>;
+        const IconPlus = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>;
+        const IconTrending = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"></polyline><polyline points="17 6 23 6 23 12"></polyline></svg>;
+        const IconCalendar = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>;
+        const IconMapPin = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>;
+        const IconX = () => <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>;
+        const IconEdit = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>;
+        const IconTrash = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>;
+        const IconActivity = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>;
+        const IconPie = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>;
+
+        // --- FIREBASE SETUP ---
+        let app, auth, db, appId;
+        try {
+            const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : null;
+            if (firebaseConfig) {
+                 apiKey: "AIzaSyARISS9dGwKmbl7Cyg7SLTIQXtmIX9U6lc",
+  authDomain: "tablero-de-gastos.firebaseapp.com",
+  projectId: "tablero-de-gastos",
+  storageBucket: "tablero-de-gastos.firebasestorage.app",
+  messagingSenderId: "1044509791371",
+  appId: "1:1044509791371:web:395f4b9ffcf2ace023b08e"
+            }
+        } catch (error) {
+            console.error("Error initializing Firebase:", error);
+        }
+
+        // --- CONSTANTES ---
+        const generatePeriods = () => {
+            const monthsNames = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+            const res = [];
+            for (let year = 2026; year <= 2035; year++) {
+                res.push({ value: String(year), label: `Todo el Año ${year}` });
+                for (let m = 0; m < 12; m++) {
+                    const monthVal = `${year}-${String(m + 1).padStart(2, '0')}`;
+                    res.push({ value: monthVal, label: `${monthsNames[m]} ${year}` });
+                }
+            }
+            return res;
+        };
+
+        const PERIODS = generatePeriods();
+        const getPeriodLabel = (val) => PERIODS.find(p => p.value === val)?.label || val;
+
+        const INITIAL_CATEGORIES = ['Sueldos y Cargas Sociales', 'Alquileres', 'Impuestos y Tasas', 'Servicios', 'Comisiones y Honorarios', 'Mantenimiento', 'Marketing', 'Otros / Dirección'];
+        const INITIAL_PDVS = ['Depósito', 'Entre Ríos (Local)', 'Tendens', 'Chajarí', 'Mauricio (CEO)'];
+        const INITIAL_FIXED_CONCEPTS = ['Coop. Electrica', 'Internet Megacable', 'Alquiler', 'Expensas', 'Sueldos'];
+        const EXPENSE_TYPES = ['Fijo', 'Variable / Extraordinario', 'Sueldo', 'Otro'];
+        const PAYMENT_METHODS = ['Mercado Pago Modashop', 'Mercado Pago Tendens', 'Banco Macro', 'Banco BBVA', 'Banco Entre Rios', 'Caja'];
+        const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f43f5e', '#84cc16', '#64748b'];
+
+        function App() {
+            // -- AUTH & DB STATE --
+            const [user, setUser] = useState(null);
+            const [isDbReady, setIsDbReady] = useState(false);
+
+            // -- NAVEGACIÓN --
+            const [activeTab, setActiveTab] = useState('dashboard');
+
+            // -- ESTADOS (Firestore) --
+            const [categories, setCategories] = useState(INITIAL_CATEGORIES);
+            const [pdvs, setPdvs] = useState(INITIAL_PDVS);
+            const [fixedConceptsList, setFixedConceptsList] = useState(INITIAL_FIXED_CONCEPTS);
+            
+            const [expenses, setExpenses] = useState([]);
+            const [fixedExpenses, setFixedExpenses] = useState([]);
+            const [prorrateoRules, setProrrateoRules] = useState([]);
+
+            // -- ESTADOS LOCALES (Dashboard & Filtros Globales) --
+            const [selectedMonth, setSelectedMonth] = useState('2026-05');
+            const [selectedPDV, setSelectedPDV] = useState('All');
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [editingId, setEditingId] = useState(null);
+            const [formData, setFormData] = useState({ date: '2026-05', concept: '', amount: '', type: 'Fijo', category: '', pdv: '' });
+
+            // -- ESTADOS LOCALES (Config / Prorrateo) --
+            const [newCategory, setNewCategory] = useState('');
+            const [newPdv, setNewPdv] = useState('');
+            const [isNewProrrateoModalOpen, setIsNewProrrateoModalOpen] = useState(false);
+            const [editingProrrateoId, setEditingProrrateoId] = useState(null);
+            const [prorrateoFormData, setProrrateoFormData] = useState({ concept: '', category: '', type: 'Fijo', percentages: {} });
+
+            // -- ESTADOS LOCALES (Pago Mixto) --
+            const [mixedPaymentRowId, setMixedPaymentRowId] = useState(null);
+            const [mixedData, setMixedData] = useState({ m1: '', a1: '', m2: '', a2: '' });
+
+            // -- ESTADOS LOCALES (Comparativo Multimes/Anual) --
+            const [compPeriods, setCompPeriods] = useState(['2026-04', '2026-05']);
+            const [selectedFixedMonth, setSelectedFixedMonth] = useState('2026-05');
+
+            // --- INIT FIREBASE AUTH & LISTENERS ---
+            useEffect(() => {
+                if (!auth) return;
+                const initAuth = async () => {
+                    try {
+                        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+                            await signInWithCustomToken(auth, __initial_auth_token);
+                        } else {
+                            await signInAnonymously(auth);
+                        }
+                    } catch (err) {
+                        console.error("Auth failed:", err);
+                    }
+                };
+                initAuth();
+                const unsubscribe = onAuthStateChanged(auth, setUser);
+                return () => unsubscribe();
+            }, []);
+
+            useEffect(() => {
+                if (!user || !db) return;
+
+                // 1. Settings (Configuraciones generales)
+                const unsubSettings = onSnapshot(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'general'), (docSnap) => {
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.categories) setCategories(data.categories);
+                        if (data.pdvs) setPdvs(data.pdvs);
+                        if (data.fixedConceptsList) setFixedConceptsList(data.fixedConceptsList);
+                    }
+                }, err => console.error(err));
+
+                // 2. Expenses (Gastos Generales / Dashboard)
+                const unsubExpenses = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'expenses'), (snapshot) => {
+                    setExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                }, err => console.error(err));
+
+                // 3. Fixed Expenses (Planilla Mensual)
+                const unsubFixed = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'fixedExpenses'), (snapshot) => {
+                    setFixedExpenses(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                }, err => console.error(err));
+
+                // 4. Prorrateo Rules (Reglas del Motor)
+                const unsubProrrateo = onSnapshot(collection(db, 'artifacts', appId, 'users', user.uid, 'prorrateoRules'), (snapshot) => {
+                    setProrrateoRules(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+                }, err => console.error(err));
+
+                setIsDbReady(true);
+
+                return () => {
+                    unsubSettings();
+                    unsubExpenses();
+                    unsubFixed();
+                    unsubProrrateo();
+                };
+            }, [user]);
+
+            // --- MÉTODOS FIREBASE (ESCRITURA) ---
+            const updateSettings = async (updates) => {
+                if (!user || !db) return;
+                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'settings', 'general'), updates, { merge: true });
+            };
+
+            const formatCurrency = (value) => new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', maximumFractionDigits: 0 }).format(value || 0);
+
+            const getColorForPDV = useCallback((pdvName) => {
+                if (pdvName === 'Mauricio (CEO)') return '#8b5cf6';
+                const idx = pdvs.findIndex(p => p === pdvName);
+                if (idx === -1) return '#94a3b8';
+                const PALETTE = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#06b6d4', '#f43f5e', '#84cc16'];
+                return PALETTE[idx % PALETTE.length];
+            }, [pdvs]);
+
+            const handleExportCSV = () => {
+                const headers = ["ID", "Mes", "Concepto", "Categoría", "Punto_de_Venta", "Tipo", "Monto", "Es_Prorrateo", "Es_Planilla"];
+                const csvContent = [
+                    headers.join(","),
+                    ...expenses.map(e => [
+                        e.id, e.date, `"${e.concept}"`, `"${e.category}"`, `"${e.pdv}"`, e.type, e.amount, 
+                        e.isProrrateo ? 'SI' : 'NO', e.isLinked ? 'SI' : 'NO'
+                    ].join(","))
+                ].join("\n");
+                
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement("a");
+                link.href = URL.createObjectURL(blob);
+                link.download = `Reporte_Gastos_${new Date().toISOString().split('T')[0]}.csv`;
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+            };
+
+            const handlePrint = () => window.print();
+
+            // -- FILTRADOS Y DATA PARA GRÁFICOS --
+            const filteredData = useMemo(() => {
+                return expenses.filter(exp => {
+                    const matchMonth = selectedMonth === 'All' || exp.date.startsWith(selectedMonth);
+                    const matchPDV = selectedPDV === 'All' || exp.pdv === selectedPDV;
+                    return matchMonth && matchPDV;
+                });
+            }, [expenses, selectedMonth, selectedPDV]);
+
+            const kpis = useMemo(() => {
+                let total = 0, fixed = 0, extra = 0, ceo = 0, pdvTotal = 0;
+                filteredData.forEach(exp => {
+                    total += exp.amount;
+                    if (exp.type === 'Fijo' || exp.type === 'Sueldo') fixed += exp.amount;
+                    else extra += exp.amount; 
+                    if (exp.pdv === 'Mauricio (CEO)') ceo += exp.amount;
+                    else if (exp.pdv !== 'Todos') pdvTotal += exp.amount;
+                });
+                return { total, fixed, extra, ceo, pdvTotal };
+            }, [filteredData]);
+
+            const globalFilteredData = useMemo(() => {
+                return expenses.filter(exp => selectedMonth === 'All' || exp.date.startsWith(selectedMonth));
+            }, [expenses, selectedMonth]);
+            
+            const globalTotal = useMemo(() => globalFilteredData.reduce((acc, exp) => acc + exp.amount, 0), [globalFilteredData]);
+            const totalDetalleOperativo = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.amount, 0), [filteredData]);
+
+            const pdvData = useMemo(() => {
+                const acc = {};
+                let totalFiltered = 0;
+                filteredData.forEach(exp => { 
+                    acc[exp.pdv] = (acc[exp.pdv] || 0) + exp.amount; 
+                    totalFiltered += exp.amount;
+                });
+                return Object.entries(acc).map(([name, value]) => ({ 
+                    name, 
+                    displayName: `${name} (${totalFiltered ? ((value/totalFiltered)*100).toFixed(1) : 0}%)`,
+                    value 
+                })).sort((a, b) => b.value - a.value);
+            }, [filteredData]);
+
+            const stackedBarData = useMemo(() => {
+                const acc = {};
+                expenses.forEach(exp => {
+                    if (selectedPDV !== 'All' && exp.pdv !== selectedPDV) return;
+                    if (!acc[exp.date]) acc[exp.date] = { month: exp.date, Total: 0 };
+                    acc[exp.date][exp.category] = (acc[exp.date][exp.category] || 0) + exp.amount;
+                    acc[exp.date].Total += exp.amount;
+                });
+                return Object.values(acc).sort((a, b) => a.month.localeCompare(b.month));
+            }, [expenses, selectedPDV]);
+
+            const comparativeData = useMemo(() => {
+                const periodTotals = compPeriods.map(period => {
+                    const data = expenses.filter(e => e.date === period || e.date.startsWith(`${period}-`));
+                    return { period, total: data.reduce((s, e) => s + e.amount, 0), data };
+                });
+
+                const catComp = categories.map(cat => {
+                    const obj = { name: cat };
+                    let hasData = false;
+                    compPeriods.forEach((period, idx) => {
+                        const catTotal = periodTotals[idx].data.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0);
+                        obj[period] = catTotal;
+                        if (catTotal > 0) hasData = true;
+                    });
+                    return hasData ? obj : null;
+                }).filter(Boolean);
+
+                let variance = 0;
+                let diagnostic = '';
+                
+                if (compPeriods.length >= 2) {
+                    const firstPeriod = periodTotals[0];
+                    const lastPeriod = periodTotals[periodTotals.length - 1];
+                    const totalStart = firstPeriod.total;
+                    const totalEnd = lastPeriod.total;
+                    
+                    variance = totalStart === 0 ? (totalEnd > 0 ? 100 : 0) : ((totalEnd - totalStart) / totalStart) * 100;
+                    
+                    const nameStart = getPeriodLabel(firstPeriod.period);
+                    const nameEnd = getPeriodLabel(lastPeriod.period);
+
+                    if (totalStart === 0 && totalEnd === 0) {
+                        diagnostic = `No hay registros financieros entre ${nameStart} y ${nameEnd}.`;
+                    } else if (totalStart === 0) {
+                        diagnostic = `No se registran gastos en el periodo inicial (${nameStart}), generando un aumento absoluto hacia ${nameEnd}.`;
+                    } else {
+                        const trend = variance > 0 ? "aumentado" : "disminuido";
+                        diagnostic = `Los gastos han ${trend} un ${Math.abs(variance).toFixed(1)}% desde ${nameStart} hasta ${nameEnd}, pasando de ${formatCurrency(totalStart)} a ${formatCurrency(totalEnd)}. `;
+                        
+                        let maxChangeCat = '';
+                        let maxChangeVal = 0;
+                        
+                        catComp.forEach(c => {
+                            const vals = compPeriods.map(p => c[p] || 0);
+                            const minVal = Math.min(...vals);
+                            const maxVal = Math.max(...vals);
+                            const diff = maxVal - minVal;
+                            
+                            if (diff > maxChangeVal) { 
+                                maxChangeVal = diff; 
+                                maxChangeCat = c.name; 
+                            }
+                        });
+                        if (maxChangeCat) diagnostic += `La categoría con mayor fluctuación en este lapso fue "${maxChangeCat}".`;
+                    }
+                }
+                return { periodTotals, catComp, variance, diagnostic };
+            }, [expenses, compPeriods, categories]);
+
+            // --- MANEJADORES FIREBASE ---
+
+            const saveExpense = async (e) => {
+                e.preventDefault();
+                if (!user || !db) return;
+                const amount = parseFloat(formData.amount);
+                const expId = editingId || Date.now().toString();
+                
+                // Actualizar o Crear Gasto (Manual)
+                const expData = { ...formData, id: expId, amount, isLinked: false, isProrrateo: false };
+                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'expenses', expId), expData, { merge: true });
+                
+                setIsModalOpen(false);
+                setEditingId(null);
+                setFormData({ date: (selectedMonth !== 'All' && selectedMonth.includes('-')) ? selectedMonth : '2026-05', concept: '', amount: '', type: 'Fijo', category: categories[0] || '', pdv: pdvs[0] || '' });
+            };
+
+            const deleteExpense = async (id) => {
+                if (!user || !db) return;
+                const exp = expenses.find(e => e.id === id);
+                
+                if(exp && exp.isLinked && !exp.isProrrateo) { 
+                    alert("Para anular este pago, ve a la Planilla Mensual y pásalo a 'Pendiente'."); 
+                    return; 
+                }
+                if(exp && exp.isProrrateo) {
+                    if(window.confirm('Este es un fragmento de prorrateo. Borrarlo eliminará todos los porcentajes de esa factura en este mes. ¿Continuar?')) {
+                        // Borrar todos los splits vinculados
+                        const splits = expenses.filter(e => e.parentFixedId === exp.parentFixedId);
+                        await Promise.all(splits.map(s => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'expenses', s.id))));
+                        // Pasar matriz a pendiente
+                        await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fixedExpenses', exp.parentFixedId), { status: 'Pendiente' }, { merge: true });
+                    }
+                    return;
+                }
+                if(window.confirm('¿Eliminar registro manual?')) {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'expenses', id));
+                }
+            };
+
+            const handleSaveProrrateoRule = async (e) => {
+                e.preventDefault();
+                if (!user || !db) return;
+                const totalPct = Object.values(prorrateoFormData.percentages).reduce((a, b) => a + (parseFloat(b)||0), 0);
+                if (totalPct !== 100) { alert(`Los porcentajes suman ${totalPct}%. Deben sumar exactamente 100%.`); return; }
+                
+                const ruleId = editingProrrateoId || 'PROR-' + Date.now();
+                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'prorrateoRules', ruleId), { ...prorrateoFormData, id: ruleId });
+                
+                setIsNewProrrateoModalOpen(false);
+                setEditingProrrateoId(null);
+            };
+
+            const handleEditProrrateoRule = (rule) => {
+                setProrrateoFormData(rule);
+                setEditingProrrateoId(rule.id);
+                setIsNewProrrateoModalOpen(true);
+            };
+
+            const handleDeleteProrrateoRule = async (id) => {
+                if (!user || !db) return;
+                if (window.confirm('¿Seguro que deseas eliminar esta regla?')) {
+                    await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'prorrateoRules', id));
+                }
+            };
+
+            const handleAddCategory = (e) => { 
+                e.preventDefault(); 
+                if(newCategory && !categories.includes(newCategory)) { 
+                    updateSettings({ categories: [...categories, newCategory] });
+                    setNewCategory(''); 
+                }
+            };
+            const handleDeleteCategory = (cat) => { 
+                if(expenses.some(e => e.category === cat)) { alert("Hay gastos en esta categoría."); return; } 
+                updateSettings({ categories: categories.filter(c => c !== cat) });
+            };
+            
+            const handleAddPdv = (e) => { 
+                e.preventDefault(); 
+                if(newPdv && !pdvs.includes(newPdv)) { 
+                    updateSettings({ pdvs: [...pdvs, newPdv] });
+                    setNewPdv(''); 
+                }
+            };
+            const handleDeletePdv = (pdv) => { 
+                if(expenses.some(e => e.pdv === pdv)) { alert("Hay gastos en este PDV."); return; } 
+                updateSettings({ pdvs: pdvs.filter(p => p !== pdv) });
+            };
+
+            // -- LÓGICA PLANILLA MENSUAL --
+            const gridData = useMemo(() => {
+                const rowsMap = new Map();
+                fixedConceptsList.forEach(concept => rowsMap.set(concept, { id: `temp-${concept}-${selectedFixedMonth}`, month: selectedFixedMonth, concept, amount: '', pdv: '', type: 'Fijo', status: 'Pendiente', dueDate: '', paymentDate: '', paymentMethod: '', isProrrateoRule: false }));
+                prorrateoRules.forEach(rule => rowsMap.set(rule.concept, { id: `temp-${rule.concept}-${selectedFixedMonth}`, month: selectedFixedMonth, concept: rule.concept, amount: '', pdv: 'Múltiple (Prorrateo)', type: rule.type, status: 'Pendiente', dueDate: '', paymentDate: '', paymentMethod: '', isProrrateoRule: true, rule: rule }));
+
+                const historicalForMonth = fixedExpenses.filter(f => f.month === selectedFixedMonth);
+                historicalForMonth.forEach(hist => {
+                    if (rowsMap.has(hist.concept)) {
+                        const base = rowsMap.get(hist.concept);
+                        rowsMap.set(hist.concept, { ...base, ...hist, isProrrateoRule: base.isProrrateoRule, rule: (hist.status === 'Pagado' && hist.ruleSnapshot) ? hist.ruleSnapshot : base.rule });
+                    } else {
+                        rowsMap.set(hist.concept, { ...hist, isProrrateoRule: hist.isProrrateoRule || false, rule: hist.ruleSnapshot || null });
+                    }
+                });
+
+                return Array.from(rowsMap.values()).sort((a, b) => {
+                    if (!a.dueDate && !b.dueDate) return 0;
+                    if (!a.dueDate) return 1;
+                    if (!b.dueDate) return -1;
+                    return a.dueDate.localeCompare(b.dueDate);
+                });
+            }, [fixedConceptsList, prorrateoRules, fixedExpenses, selectedFixedMonth]);
+
+            const handleFixedChange = async (id, concept, fieldOrUpdates, value) => {
+                if (!user || !db) return;
+                const existing = fixedExpenses.find(f => f.id === id);
+                const isObjectUpdate = typeof fieldOrUpdates === 'object' && fieldOrUpdates !== null;
+                const updates = isObjectUpdate ? fieldOrUpdates : { [fieldOrUpdates]: value };
+                
+                if (existing && existing.status === 'Pagado') {
+                    const fieldsBeingUpdated = Object.keys(updates);
+                    const invalid = fieldsBeingUpdated.some(k => k !== 'dueDate' && k !== 'paymentDate');
+                    if (invalid) { alert("Para modificar monto, pdv o forma de pago, pasa el estado a 'Pendiente'."); return; }
+                }
+                
+                if (existing) {
+                    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fixedExpenses', id), updates, { merge: true });
+                } else {
+                    const newId = Date.now().toString();
+                    const newObj = { id: newId, month: selectedFixedMonth, concept, amount: '', pdv: '', type: 'Fijo', status: 'Pendiente', dueDate: '', paymentDate: '', paymentMethod: '', ...updates };
+                    
+                    const ruleInfo = prorrateoRules.find(r => r.concept === concept);
+                    if (ruleInfo) {
+                        newObj.isProrrateoRule = true;
+                        newObj.rule = ruleInfo;
+                        newObj.pdv = 'Múltiple (Prorrateo)';
+                        newObj.type = ruleInfo.type;
+                    }
+                    
+                    await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fixedExpenses', newId), newObj);
+                }
+            };
+
+            const toggleFixedStatus = async (item) => {
+                if (!user || !db) return;
+                const numAmount = parseFloat(item.amount);
+                
+                if (item.status === 'Pendiente' && (!numAmount || numAmount <= 0)) { alert('Ingresa un Monto válido.'); return; }
+                if (item.status === 'Pendiente' && !item.isProrrateoRule && !item.pdv) { alert('Selecciona un PDV.'); return; }
+                if (item.status === 'Pendiente' && item.paymentMethod === 'Mixto') {
+                    if (!item.mixedPayments || (parseFloat(item.mixedPayments.a1) + parseFloat(item.mixedPayments.a2) !== numAmount)) {
+                        alert('Los montos del pago mixto no coinciden con el total. Por favor, reconfigura el pago mixto.');
+                        return;
+                    }
+                }
+
+                const newStatus = item.status === 'Pendiente' ? 'Pagado' : 'Pendiente';
+                let finalId = item.id.startsWith('temp-') ? Date.now().toString() : item.id;
+
+                const updatedFixedRecord = { ...item, id: finalId, status: newStatus };
+                if (item.isProrrateoRule && newStatus === 'Pagado') { 
+                    updatedFixedRecord.ruleSnapshot = item.rule; 
+                }
+
+                // Guardar la Planilla
+                await setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fixedExpenses', finalId), updatedFixedRecord, { merge: true });
+
+                if (newStatus === 'Pagado') {
+                    const chunks = [];
+                    if (item.paymentMethod === 'Mixto' && item.mixedPayments) {
+                        chunks.push({ method: item.mixedPayments.m1, amount: parseFloat(item.mixedPayments.a1) });
+                        chunks.push({ method: item.mixedPayments.m2, amount: parseFloat(item.mixedPayments.a2) });
+                    } else {
+                        chunks.push({ method: item.paymentMethod || 'Efectivo', amount: numAmount });
+                    }
+
+                    const pdvChunks = [];
+                    if (item.isProrrateoRule && item.rule) {
+                        Object.entries(item.rule.percentages).forEach(([pdv, pct]) => {
+                            const pctValue = parseFloat(pct) || 0;
+                            if (pctValue > 0) pdvChunks.push({ pdv, pct: pctValue });
+                        });
+                    } else {
+                        pdvChunks.push({ pdv: item.pdv, pct: 100 });
+                    }
+
+                    const newSplits = [];
+                    chunks.forEach((chunk, cIdx) => {
+                        if (chunk.amount > 0) {
+                            pdvChunks.forEach((pChunk, pIdx) => {
+                                const finalAmount = chunk.amount * (pChunk.pct / 100);
+                                let finalConcept = item.concept;
+                                if (item.isProrrateoRule) finalConcept += ` (${pChunk.pct}%)`;
+                                if (item.paymentMethod === 'Mixto') finalConcept += ` [${chunk.method}]`;
+
+                                newSplits.push({
+                                    id: `auto-${finalId}-${cIdx}-${pIdx}`,
+                                    date: item.month,
+                                    concept: finalConcept,
+                                    amount: finalAmount,
+                                    type: item.isProrrateoRule ? item.rule.type : (item.type || 'Fijo'),
+                                    category: item.isProrrateoRule ? item.rule.category : (categories[0] || 'Servicios'),
+                                    pdv: pChunk.pdv,
+                                    isProrrateo: item.isProrrateoRule || false,
+                                    isLinked: true,
+                                    parentFixedId: finalId
+                                });
+                            });
+                        }
+                    });
+                    
+                    // Inyectar al Dashboard
+                    await Promise.all(newSplits.map(split => setDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'expenses', split.id), split)));
+                } else {
+                    // Borrar del Dashboard
+                    const linked = expenses.filter(e => e.parentFixedId === finalId);
+                    await Promise.all(linked.map(e => deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'expenses', e.id))));
+                }
+            };
+
+            const handleRemoveFromPlanilla = async (row) => {
+                if (!user || !db) return;
+                if (row.status === 'Pagado') {
+                    alert('No puedes eliminar un concepto que ya está PAGADO en este mes. Primero pásalo a PENDIENTE si deseas borrarlo.');
+                    return;
+                }
+
+                if (row.isProrrateoRule) {
+                    if (window.confirm(`"${row.concept}" es una Regla de Prorrateo.\n\n¿Deseas ELIMINAR esta regla del sistema? (Desaparecerá de todos los meses futuros).`)) {
+                        if (row.rule && row.rule.id) {
+                            await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'prorrateoRules', row.rule.id));
+                        }
+                        if (!row.id.startsWith('temp-')) {
+                            await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fixedExpenses', row.id));
+                        }
+                    }
+                } else {
+                    if (window.confirm(`¿Deseas ELIMINAR el concepto "${row.concept}" de la planilla base?`)) {
+                        updateSettings({ fixedConceptsList: fixedConceptsList.filter(c => c !== row.concept) });
+                        if (!row.id.startsWith('temp-')) {
+                            await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'fixedExpenses', row.id));
+                        }
+                    }
+                }
+            };
+
+            // -- PANTALLA DE CARGA --
+            if (!isDbReady) {
+                return (
+                    <div className="flex h-screen items-center justify-center bg-slate-50 flex-col gap-4">
+                        <div className="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+                        <p className="text-slate-600 font-bold animate-pulse">Conectando a base de datos segura...</p>
+                    </div>
+                );
+            }
+
+            return (
+                <div className="min-h-screen text-slate-800 font-sans p-4 md:p-8 flex flex-col gap-6 max-w-[1500px] mx-auto">
+                    
+                    {/* CABECERA */}
+                    <header className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 flex flex-col xl:flex-row justify-between items-start xl:items-center gap-6 no-print">
+                        <div>
+                            <h1 className="text-2xl md:text-3xl font-black text-slate-900 flex items-center gap-3 tracking-tight">
+                                <div className="bg-blue-600 text-white p-2 rounded-xl shadow-md"><IconDashboard /></div>
+                                Tablero Gastos Cloud
+                            </h1>
+                            <p className="text-slate-500 mt-1 font-medium ml-12">Gestión y Prorrateo Automático - <span className="text-emerald-600 font-bold">☁️ Conectado</span></p>
+                        </div>
+                        
+                        <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl w-full xl:w-auto gap-1">
+                            <button onClick={() => setActiveTab('dashboard')} className={`px-4 py-2.5 rounded-lg text-sm font-bold flex-1 md:flex-none flex items-center justify-center gap-2 transition-all ${activeTab === 'dashboard' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                <IconPie /> Dashboard
+                            </button>
+                            <button onClick={() => { setActiveTab('fijos'); setSelectedFixedMonth((selectedMonth !== 'All' && selectedMonth.includes('-')) ? selectedMonth : '2026-05'); }} className={`px-4 py-2.5 rounded-lg text-sm font-bold flex-1 md:flex-none flex items-center justify-center gap-2 transition-all ${activeTab === 'fijos' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                <IconList /> Planilla & Detalle
+                            </button>
+                            <button onClick={() => setActiveTab('prorrateos')} className={`px-4 py-2.5 rounded-lg text-sm font-bold flex-1 md:flex-none flex items-center justify-center gap-2 transition-all ${activeTab === 'prorrateos' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                <IconSplit /> Prorrateos
+                            </button>
+                            <button onClick={() => setActiveTab('comparativo')} className={`px-4 py-2.5 rounded-lg text-sm font-bold flex-1 md:flex-none flex items-center justify-center gap-2 transition-all ${activeTab === 'comparativo' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                <IconActivity /> Comparativo
+                            </button>
+                            <button onClick={() => setActiveTab('config')} className={`px-4 py-2.5 rounded-lg text-sm font-bold flex-1 md:flex-none flex items-center justify-center gap-2 transition-all ${activeTab === 'config' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+                                <IconSettings /> Config
+                            </button>
+                        </div>
+
+                        <div className="flex gap-2 w-full xl:w-auto justify-end">
+                            <button onClick={handlePrint} className="p-2.5 bg-slate-100 text-slate-700 hover:bg-slate-200 rounded-lg transition-colors" title="Imprimir PDF"><IconPrinter /></button>
+                            <button onClick={handleExportCSV} className="px-4 py-2.5 bg-emerald-100 text-emerald-800 hover:bg-emerald-200 font-bold rounded-lg flex items-center gap-2 transition-colors"><IconDownload /> Exportar Excel</button>
+                        </div>
+                    </header>
+
+                    {/* VISTA: DASHBOARD GENERAL */}
+                    {activeTab === 'dashboard' && (
+                        <div className="flex flex-col gap-6 animate-fadeIn">
+                            <div className="flex flex-col sm:flex-row gap-3 w-full justify-between items-center bg-white p-4 rounded-xl border border-slate-100 shadow-sm no-print">
+                                <div className="flex gap-3 w-full sm:w-auto">
+                                    <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg p-1">
+                                        <div className="text-slate-400 ml-2"><IconCalendar /></div>
+                                        <select className="bg-transparent border-none text-sm font-bold text-slate-700 focus:ring-0 cursor-pointer pl-2 py-2 outline-none" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)}>
+                                            <option value="All">Todos los periodos</option>
+                                            {PERIODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg p-1">
+                                        <div className="text-slate-400 ml-2"><IconMapPin /></div>
+                                        <select className="bg-transparent border-none text-sm font-bold text-slate-700 focus:ring-0 cursor-pointer pl-2 py-2 outline-none" value={selectedPDV} onChange={(e) => setSelectedPDV(e.target.value)}>
+                                            <option value="All">Todos los PDV</option>
+                                            {pdvs.map(p => <option key={p} value={p}>{p}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <button onClick={() => { setFormData({ date: (selectedMonth !== 'All' && selectedMonth.includes('-')) ? selectedMonth : '2026-05', concept: '', amount: '', type: 'Fijo', category: categories[0] || '', pdv: pdvs[0] || '' }); setEditingId(null); setIsModalOpen(true); }} className="w-full sm:w-auto bg-slate-900 hover:bg-slate-800 text-white px-5 py-2.5 rounded-lg flex items-center justify-center gap-2 font-bold shadow-md transition-transform active:scale-95">
+                                    <IconPlus /> Registro Manual
+                                </button>
+                            </div>
+
+                            <div className={`grid grid-cols-1 md:grid-cols-${selectedPDV === 'All' ? '3' : '2'} gap-6`}>
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden">
+                                    <div className="absolute top-0 left-0 w-1 h-full bg-blue-500"></div>
+                                    <p className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">Gasto Total</p>
+                                    <h2 className="text-4xl font-black text-slate-800">{formatCurrency(kpis.total)}</h2>
+                                    {selectedPDV !== 'All' ? (
+                                        <p className="text-xs text-slate-500 mt-2 font-medium">De un total general de <b className="text-slate-700">{formatCurrency(globalTotal)}</b> en el periodo</p>
+                                    ) : (
+                                        <p className="text-xs text-slate-400 mt-2 font-medium">En el periodo seleccionado</p>
+                                    )}
+                                </div>
+                                <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden">
+                                    <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
+                                    <p className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">Estructura</p>
+                                    <div className="flex justify-between items-end mt-2">
+                                        <div><p className="text-xs text-slate-400 font-bold">Fijos/Sueldos</p><p className="text-lg font-black text-emerald-600">{formatCurrency(kpis.fixed)}</p></div>
+                                        <div className="text-right"><p className="text-xs text-slate-400 font-bold">Variables/Extra.</p><p className="text-lg font-black text-amber-500">{formatCurrency(kpis.extra)}</p></div>
+                                    </div>
+                                    <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden flex">
+                                        <div className="bg-emerald-500 h-full" style={{ width: `${(kpis.fixed/kpis.total)*100 || 0}%` }}></div>
+                                        <div className="bg-amber-500 h-full" style={{ width: `${(kpis.extra/kpis.total)*100 || 0}%` }}></div>
+                                    </div>
+                                </div>
+                                {selectedPDV === 'All' && (
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100 relative overflow-hidden">
+                                        <div className="absolute top-0 left-0 w-1 h-full bg-purple-500"></div>
+                                        <p className="text-sm font-bold text-slate-400 uppercase tracking-wider mb-1">Distribución Operativa</p>
+                                        <div className="flex justify-between items-end mt-2">
+                                            <div><p className="text-xs text-slate-400 font-bold">Locales / Op</p><p className="text-lg font-black text-slate-700">{formatCurrency(kpis.pdvTotal)}</p></div>
+                                            <div className="text-right"><p className="text-xs text-slate-400 font-bold">Dirección CEO</p><p className="text-lg font-black text-purple-600">{formatCurrency(kpis.ceo)}</p></div>
+                                        </div>
+                                        <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden flex">
+                                            <div className="bg-slate-700 h-full" style={{ width: `${(kpis.pdvTotal/kpis.total)*100 || 0}%` }}></div>
+                                            <div className="bg-purple-500 h-full" style={{ width: `${(kpis.ceo/kpis.total)*100 || 0}%` }}></div>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className={`grid grid-cols-1 lg:grid-cols-2 ${selectedPDV === 'All' ? 'xl:grid-cols-3' : ''} gap-6`}>
+                                <div className={`bg-white p-6 rounded-2xl shadow-sm border border-slate-100 ${selectedPDV === 'All' ? 'xl:col-span-2' : 'lg:col-span-2'}`}>
+                                    <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><div className="text-blue-500"><IconTrending /></div>Composición de Gastos Mensual</h3>
+                                    <div className="h-80 w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={stackedBarData} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                <XAxis dataKey="month" stroke="#94a3b8" tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 600}} />
+                                                <YAxis stroke="#94a3b8" tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 600}} tickFormatter={(val) => `$${(val/1000000).toFixed(1)}M`} />
+                                                <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                                                <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
+                                                {categories.map((cat, idx) => <Bar key={cat} dataKey={cat} stackId="a" fill={COLORS[idx % COLORS.length]} />)}
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                                
+                                {selectedPDV === 'All' && (
+                                    <div className="bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                                        <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><div className="text-blue-500"><IconMapPin /></div>Centros de Gastos</h3>
+                                        <div className="h-64 w-full">
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <PieChart>
+                                                    <Pie data={pdvData} cx="50%" cy="50%" innerRadius={60} outerRadius={85} paddingAngle={3} dataKey="value" nameKey="displayName" stroke="none">
+                                                        {pdvData.map((entry, index) => <Cell key={`cell-${index}`} fill={getColorForPDV(entry.name)} />)}
+                                                    </Pie>
+                                                    <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontWeight: 'bold'}} />
+                                                    <Legend layout="vertical" verticalAlign="middle" align="right" wrapperStyle={{ fontSize: '11px', fontWeight: 600, color: '#475569' }} />
+                                                </PieChart>
+                                            </ResponsiveContainer>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* VISTA: COMPARATIVO Y DIAGNÓSTICO */}
+                    {activeTab === 'comparativo' && (
+                        <div className="flex flex-col gap-6 animate-fadeIn">
+                            <div className="bg-slate-900 p-6 rounded-2xl shadow-md border border-slate-800 flex flex-col xl:flex-row gap-6 items-start xl:items-center justify-between no-print">
+                                <div className="text-white">
+                                    <h2 className="text-2xl font-black flex items-center gap-2"><IconActivity /> Comparativo Dinámico</h2>
+                                    <p className="text-slate-400 text-sm mt-1">Compara meses individuales o años completos. Añade múltiples periodos a la vista.</p>
+                                </div>
+                                <div className="flex flex-wrap items-center gap-2 bg-slate-800 p-2 rounded-xl border border-slate-700 w-full xl:w-auto">
+                                    {compPeriods.map((p, idx) => (
+                                        <React.Fragment key={idx}>
+                                            {idx > 0 && <span className="text-slate-500 font-black text-xs px-1">VS</span>}
+                                            <div className="relative flex items-center">
+                                                <select className="bg-slate-900 text-white border border-slate-600 rounded-lg py-2 pl-3 pr-8 font-bold outline-none text-sm appearance-none hover:bg-slate-800 transition-colors" value={p} onChange={(e) => {
+                                                    const newP = [...compPeriods];
+                                                    newP[idx] = e.target.value;
+                                                    setCompPeriods(newP);
+                                                }}>
+                                                    {PERIODS.map(m=><option key={m.value} value={m.value}>{m.label}</option>)}
+                                                </select>
+                                                {compPeriods.length > 2 && (
+                                                    <button onClick={() => setCompPeriods(compPeriods.filter((_, i) => i !== idx))} className="absolute right-2 text-slate-400 hover:text-red-400 transition-colors" title="Quitar periodo"><IconTrash /></button>
+                                                )}
+                                            </div>
+                                        </React.Fragment>
+                                    ))}
+                                    {compPeriods.length < 5 && (
+                                        <button onClick={() => setCompPeriods([...compPeriods, PERIODS[0].value])} className="text-xs font-bold bg-blue-600/20 text-blue-400 border border-blue-500/30 hover:bg-blue-600/40 py-2 px-3 rounded-lg ml-1 shadow-sm transition-colors flex items-center gap-1"><IconPlus /> Añadir</button>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                                <div className="bg-white p-8 rounded-2xl shadow-sm border border-slate-100 flex flex-col justify-center">
+                                    <h3 className="text-sm font-bold text-slate-400 uppercase mb-4 tracking-widest border-b pb-2">Resumen Ejecutivo</h3>
+                                    
+                                    <div className="space-y-4 mb-6">
+                                        {comparativeData.periodTotals.map((pt, i) => (
+                                            <div key={pt.period + i} className="flex justify-between items-center border-b border-slate-50 pb-2">
+                                                <span className="text-slate-600 font-bold text-sm flex items-center gap-2">
+                                                    <span className="w-3 h-3 rounded-full shadow-sm" style={{backgroundColor: COLORS[i % COLORS.length]}}></span>
+                                                    {getPeriodLabel(pt.period)}
+                                                </span>
+                                                <span className="text-lg font-black text-slate-800">{formatCurrency(pt.total)}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+
+                                    {compPeriods.length >= 2 && (
+                                        <>
+                                            <div className={`p-4 rounded-xl text-center mb-6 ${comparativeData.variance > 0 ? 'bg-red-50 text-red-700' : comparativeData.variance < 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-50 text-slate-700'}`}>
+                                                <p className="text-xs font-bold uppercase mb-1">Variación Neta (Inicio vs Fin)</p>
+                                                <p className="text-3xl font-black">
+                                                    {comparativeData.variance > 0 ? '+' : ''}{comparativeData.variance.toFixed(1)}%
+                                                </p>
+                                            </div>
+                                            <div className="p-4 bg-blue-50 border border-blue-100 rounded-xl">
+                                                <p className="text-sm text-blue-900 font-medium leading-relaxed">
+                                                    <strong className="block mb-1 text-blue-700">Diagnóstico:</strong>
+                                                    {comparativeData.diagnostic}
+                                                </p>
+                                            </div>
+                                        </>
+                                    )}
+                                </div>
+
+                                <div className="lg:col-span-2 bg-white p-6 rounded-2xl shadow-sm border border-slate-100">
+                                    <h3 className="text-lg font-bold text-slate-800 mb-6 flex items-center gap-2"><IconTrending /> Evolución por Categoría</h3>
+                                    <div className="h-[400px] w-full">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <BarChart data={comparativeData.catComp} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
+                                                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
+                                                <XAxis dataKey="name" stroke="#94a3b8" tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 600}} interval={0} angle={-15} textAnchor="end" height={60} />
+                                                <YAxis stroke="#94a3b8" tick={{fill: '#94a3b8', fontSize: 11, fontWeight: 600}} tickFormatter={(val) => `$${(val/1000).toFixed(0)}k`} />
+                                                <Tooltip formatter={(value) => formatCurrency(value)} cursor={{fill: '#f8fafc'}} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
+                                                <Legend wrapperStyle={{ fontSize: '12px', fontWeight: 600, paddingTop: '20px' }} />
+                                                {compPeriods.map((p, i) => (
+                                                    <Bar key={p + i} dataKey={p} fill={COLORS[i % COLORS.length]} name={getPeriodLabel(p)} radius={[4, 4, 0, 0]} />
+                                                ))}
+                                            </BarChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* VISTA: PLANILLA MENSUAL & DETALLE */}
+                    {activeTab === 'fijos' && (
+                        <div className="flex flex-col gap-6 animate-fadeIn">
+                             <div className="flex flex-col sm:flex-row gap-3 w-full justify-between items-center bg-white p-4 rounded-xl border border-slate-100 shadow-sm no-print">
+                                <div className="flex gap-2 w-full sm:w-auto">
+                                    <div className="flex items-center bg-slate-50 border border-slate-200 rounded-lg p-1">
+                                        <div className="text-slate-400 ml-2"><IconCalendar /></div>
+                                        <select className="bg-transparent border-none text-sm font-bold text-slate-700 focus:ring-0 cursor-pointer pl-2 py-2 outline-none" value={selectedFixedMonth} onChange={(e) => { setSelectedFixedMonth(e.target.value); setSelectedMonth(e.target.value); }}>
+                                            {PERIODS.filter(m => m.value.includes('-')).map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="flex gap-2 w-full sm:w-auto">
+                                    <button onClick={() => { 
+                                        const c = prompt("Nuevo concepto manual para la Planilla Fija:"); 
+                                        if(c && !fixedConceptsList.includes(c)) updateSettings({ fixedConceptsList: [...fixedConceptsList, c] }); 
+                                    }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg flex items-center font-bold shadow-md gap-2 flex-1 sm:flex-none justify-center">
+                                        <IconPlus /> Nueva Fila
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                                <div className="p-5 border-b border-slate-100 bg-emerald-50/30 flex justify-between items-center">
+                                    <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><IconList /> Planilla de Carga Mensual - {selectedFixedMonth}</h3>
+                                </div>
+                                <div className="overflow-x-auto pb-6">
+                                    <table className="w-full text-left text-sm whitespace-nowrap">
+                                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                                            <tr>
+                                                <th className="px-4 py-3 font-bold min-w-[180px]">Concepto</th>
+                                                <th className="px-2 py-3 font-bold w-24">Vencimiento</th>
+                                                <th className="px-2 py-3 font-bold w-24">Pago</th>
+                                                <th className="px-2 py-3 font-bold w-32">Método de Pago</th>
+                                                <th className="px-2 py-3 font-bold w-32">PDV (100%)</th>
+                                                <th className="px-4 py-3 font-bold w-32 text-right">Monto ($)</th>
+                                                <th className="px-4 py-3 font-bold text-center w-28">Estado</th>
+                                                <th className="px-2 py-3"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {gridData.map((row) => (
+                                                <tr key={row.id} className={`transition-colors group ${row.status === 'Pagado' ? 'bg-emerald-50/40' : 'hover:bg-slate-50'}`}>
+                                                    <td className="px-4 py-2 font-bold text-slate-800">{row.concept}</td>
+                                                    <td className="px-2 py-2">
+                                                        <input type="date" className="w-full bg-transparent border border-transparent hover:border-slate-300 focus:bg-white rounded px-1 py-1 text-xs text-slate-600 outline-none" value={row.dueDate || ''} onChange={(e) => handleFixedChange(row.id, row.concept, 'dueDate', e.target.value)} />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <input type="date" className="w-full bg-transparent border border-transparent hover:border-slate-300 focus:bg-white rounded px-1 py-1 text-xs text-slate-600 outline-none" value={row.paymentDate || ''} onChange={(e) => handleFixedChange(row.id, row.concept, 'paymentDate', e.target.value)} />
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        <select 
+                                                            className={`w-full bg-transparent border border-transparent hover:border-slate-300 focus:bg-white rounded px-1 py-1 text-xs outline-none ${row.paymentMethod === 'Mixto' ? 'font-bold text-blue-600' : 'text-slate-600'}`} 
+                                                            value={row.paymentMethod || ''} 
+                                                            onChange={(e) => {
+                                                                const val = e.target.value;
+                                                                if (val === 'Mixto') {
+                                                                    if (!row.amount || row.amount <= 0) {
+                                                                        alert("Por favor, ingresa el Monto ($) primero antes de dividir el pago.");
+                                                                        return;
+                                                                    }
+                                                                    setMixedPaymentRowId(row.id);
+                                                                    setMixedData(row.mixedPayments || { m1: '', a1: row.amount, m2: '', a2: '' });
+                                                                } else {
+                                                                    handleFixedChange(row.id, row.concept, { paymentMethod: val, mixedPayments: null });
+                                                                }
+                                                            }}
+                                                        >
+                                                            <option value="" disabled className="text-slate-800 bg-white">- Medio -</option>
+                                                            {PAYMENT_METHODS.map(m => <option key={m} value={m} className="text-slate-800 bg-white">{m}</option>)}
+                                                            <option value="Mixto" className="font-bold text-blue-600 bg-white">Mixto (Dividir)</option>
+                                                        </select>
+                                                        {row.paymentMethod === 'Mixto' && (
+                                                            <button onClick={() => {
+                                                                setMixedPaymentRowId(row.id);
+                                                                setMixedData(row.mixedPayments || { m1: '', a1: row.amount, m2: '', a2: '' });
+                                                            }} className="text-[10px] text-blue-600 hover:text-blue-800 hover:underline w-full text-center mt-0.5 block font-bold">Ver / Editar</button>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-2 py-2">
+                                                        {row.isProrrateoRule ? (
+                                                            <span className="w-full bg-purple-50 text-purple-700 text-[10px] uppercase font-black px-2 py-1.5 rounded flex items-center justify-center border border-purple-100 shadow-sm">Múltiple (Regla)</span>
+                                                        ) : (
+                                                            <select className="w-full bg-transparent border-none outline-none text-slate-700 font-bold" value={row.pdv} onChange={(e) => handleFixedChange(row.id, row.concept, 'pdv', e.target.value)}>
+                                                                <option value="" disabled className="text-slate-800 bg-white">- Asignar -</option>
+                                                                {pdvs.map(p => <option key={p} value={p} className="text-slate-800 bg-white">{p}</option>)}
+                                                            </select>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-4 py-2">
+                                                        <div className="relative">
+                                                            <span className="absolute left-1 top-1 text-slate-400 font-bold">$</span>
+                                                            <input type="number" step="0.01" className="w-full bg-transparent border-none rounded pl-4 pr-2 py-1 outline-none text-slate-900 font-black text-right" value={row.amount} onChange={(e) => handleFixedChange(row.id, row.concept, 'amount', e.target.value)} />
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-2 text-center">
+                                                        <button onClick={() => toggleFixedStatus(row)} className={`w-full px-2 py-1.5 rounded-md text-xs font-bold transition-all border ${row.status === 'Pagado' ? 'bg-emerald-100 text-emerald-800 border-emerald-200 shadow-sm' : 'bg-white text-slate-500 border-slate-300 hover:bg-slate-50'}`}>
+                                                            {row.status === 'Pagado' ? 'PAGADO' : 'PENDIENTE'}
+                                                        </button>
+                                                    </td>
+                                                    <td className="px-2 py-2 text-center">
+                                                        <button onClick={() => handleRemoveFromPlanilla(row)} className="text-slate-400 hover:text-red-500 transition-colors p-1" title="Eliminar concepto de la planilla"><IconTrash /></button>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            {/* Detalle Operativo */}
+                            <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden mt-4">
+                                <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center bg-slate-800 text-white gap-3">
+                                    <h3 className="text-lg font-bold">Detalle Operativo del Mes</h3>
+                                    <div className="flex items-center bg-slate-700 rounded-lg p-1 text-sm no-print">
+                                        <div className="text-slate-300 ml-2"><IconMapPin /></div>
+                                        <select className="bg-transparent border-none font-bold text-white focus:ring-0 cursor-pointer pl-2 py-1 outline-none" value={selectedPDV} onChange={(e) => setSelectedPDV(e.target.value)}>
+                                            <option value="All" className="text-slate-800 bg-white">Todos los PDV</option>
+                                            {pdvs.map(p => <option key={p} value={p} className="text-slate-800 bg-white">{p}</option>)}
+                                        </select>
+                                    </div>
+                                </div>
+                                <div className="overflow-x-auto print-w-full">
+                                    <table className="w-full text-left text-sm print-w-full">
+                                        <thead className="bg-slate-50 text-slate-500 border-b border-slate-200">
+                                            <tr>
+                                                <th className="px-6 py-3 font-bold">Concepto</th>
+                                                <th className="px-6 py-3 font-bold">Categoría</th>
+                                                <th className="px-6 py-3 font-bold">PDV</th>
+                                                <th className="px-6 py-3 font-bold text-center">Tipo</th>
+                                                <th className="px-6 py-3 font-bold text-right">Monto</th>
+                                                <th className="px-6 py-3 font-bold text-center no-print">Acciones</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-slate-100">
+                                            {filteredData.slice().reverse().map(exp => (
+                                                <tr key={exp.id} className="hover:bg-slate-50/80 transition-colors group">
+                                                    <td className="px-6 py-3 text-slate-900 font-medium max-w-xs truncate" title={exp.concept}>
+                                                        {exp.concept}
+                                                        {exp.isLinked && <span className="ml-2 inline-block text-[9px] bg-slate-200 text-slate-600 px-1.5 py-0.5 rounded font-bold">PLANILLA</span>}
+                                                        {exp.isProrrateo && <span className="ml-2 inline-block text-[9px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded font-bold">PRORRATEO</span>}
+                                                    </td>
+                                                    <td className="px-6 py-3"><span className="bg-slate-100 text-slate-600 px-2 py-1 rounded text-xs font-bold">{exp.category}</span></td>
+                                                    <td className="px-6 py-3 text-slate-600 font-medium">{exp.pdv}</td>
+                                                    <td className="px-6 py-3 text-center">
+                                                        <span className={`px-2 py-1 rounded text-[10px] uppercase font-bold tracking-wider ${exp.type === 'Fijo' ? 'bg-blue-50 text-blue-600' : exp.type === 'Sueldo' ? 'bg-indigo-50 text-indigo-600' : 'bg-amber-50 text-amber-600'}`}>{exp.type}</span>
+                                                    </td>
+                                                    <td className="px-6 py-3 text-right font-black text-slate-800">{formatCurrency(exp.amount)}</td>
+                                                    <td className="px-6 py-3 text-center no-print">
+                                                        <div className="flex justify-center gap-2 transition-opacity">
+                                                            {!exp.isLinked && !exp.isProrrateo && <button onClick={() => { setFormData(exp); setEditingId(exp.id); setIsModalOpen(true); }} className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 shadow-sm border border-blue-100" title="Editar manual"><IconEdit /></button>}
+                                                            <button onClick={() => deleteExpense(exp.id)} className="p-1.5 bg-red-50 text-red-600 rounded hover:bg-red-100 shadow-sm border border-red-100" title="Eliminar"><IconTrash /></button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                            {filteredData.length === 0 && <tr><td colSpan="6" className="px-6 py-12 text-center text-slate-400 font-medium">No hay gastos operacionales en esta vista.</td></tr>}
+                                        </tbody>
+                                        <tfoot className="bg-emerald-50 border-t-2 border-emerald-200">
+                                            <tr>
+                                                <td colSpan="4" className="px-6 py-4 font-black text-emerald-900 text-right uppercase text-xs tracking-wider">
+                                                    Total Operativo {selectedPDV !== 'All' ? `(${selectedPDV})` : '(General)'}:
+                                                </td>
+                                                <td className="px-6 py-4 text-right font-black text-lg text-emerald-700">{formatCurrency(totalDetalleOperativo)}</td>
+                                                <td className="no-print"></td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+
+                        </div>
+                    )}
+
+                    {/* VISTA: PRORRATEOS */}
+                    {activeTab === 'prorrateos' && (
+                        <div className="flex flex-col gap-6 animate-fadeIn">
+                            <div className="bg-purple-50 p-6 rounded-2xl border border-purple-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+                                <div>
+                                    <h2 className="text-xl font-black text-purple-900 flex items-center gap-2"><IconSplit /> Motor de Prorrateos Automáticos</h2>
+                                    <p className="text-purple-700 text-sm mt-1">Crea reglas para dividir facturas generales porcentualmente entre locales.</p>
+                                </div>
+                                <button onClick={() => setIsNewProrrateoModalOpen(true)} className="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2.5 rounded-lg flex items-center justify-center gap-2 font-bold shadow-md w-full md:w-auto">
+                                    <IconPlus /> Crear Nueva Regla
+                                </button>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-6">
+                                {prorrateoRules.length === 0 && (
+                                    <div className="text-center p-12 bg-white rounded-2xl border border-dashed border-slate-300">
+                                        <p className="text-slate-400 font-medium">No tienes reglas de prorrateo configuradas.</p>
+                                    </div>
+                                )}
+                                {prorrateoRules.map(rule => (
+                                    <div key={rule.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                                        <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                                            <div>
+                                                <h3 className="text-lg font-black text-slate-800">{rule.concept}</h3>
+                                                <p className="text-xs font-bold text-slate-500 uppercase mt-1">{rule.category} • {rule.type}</p>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => handleEditProrrateoRule(rule)} className="text-blue-600 hover:bg-blue-50 px-3 py-2 rounded-lg font-bold text-sm bg-white shadow-sm border border-slate-200"><IconEdit /> Editar</button>
+                                                <button onClick={() => handleDeleteProrrateoRule(rule.id)} className="text-red-500 hover:bg-red-50 px-3 py-2 rounded-lg font-bold text-sm"><IconTrash /> Borrar</button>
+                                            </div>
+                                        </div>
+                                        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-6">
+                                            <div>
+                                                <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Distribución Fija</h4>
+                                                <div className="space-y-2">
+                                                    {Object.entries(rule.percentages).map(([pdv, pct]) => parseFloat(pct) > 0 && (
+                                                        <div key={pdv} className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-100">
+                                                            <span className="font-semibold text-slate-700 text-sm">{pdv}</span>
+                                                            <span className="font-black text-purple-600 text-sm">{pct}%</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                            <div className="bg-blue-50/50 p-5 rounded-xl border border-blue-100 flex flex-col justify-center items-center text-center">
+                                                <div className="bg-blue-100 p-3 rounded-full text-blue-600 mb-3"><IconList /></div>
+                                                <h4 className="text-sm font-bold text-blue-800 mb-2">Vinculado a Planilla</h4>
+                                                <p className="text-xs text-blue-600 leading-relaxed">Esta regla aparece automáticamente en la pestaña <b>Planilla</b> para ser pagada mes a mes.</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* VISTA: CONFIGURACIÓN */}
+                    {activeTab === 'config' && (
+                        <div className="flex flex-col gap-6 animate-fadeIn">
+                            <div className="bg-slate-800 p-6 rounded-2xl shadow-sm text-white">
+                                <h2 className="text-xl font-black flex items-center gap-2"><IconSettings /> Configuración del Sistema</h2>
+                                <p className="text-slate-400 text-sm mt-1">Administra Puntos de Venta y Categorías base.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                                    <div className="p-5 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800">Categorías de Gasto</h3></div>
+                                    <div className="p-5">
+                                        <form onSubmit={handleAddCategory} className="flex gap-2 mb-4">
+                                            <input type="text" value={newCategory} onChange={e=>setNewCategory(e.target.value)} placeholder="Nueva categoría..." className="border border-slate-200 rounded p-2 flex-1 text-sm outline-none focus:border-blue-500" required />
+                                            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700">Agregar</button>
+                                        </form>
+                                        <ul className="divide-y divide-slate-100">
+                                            {categories.map(cat => (
+                                                <li key={cat} className="py-3 flex justify-between items-center group">
+                                                    <span className="font-semibold text-slate-600 text-sm">{cat}</span>
+                                                    <button onClick={()=>handleDeleteCategory(cat)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><IconTrash /></button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+
+                                <div className="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+                                    <div className="p-5 border-b border-slate-100 bg-slate-50"><h3 className="font-bold text-slate-800">Puntos de Venta (CC)</h3></div>
+                                    <div className="p-5">
+                                        <form onSubmit={handleAddPdv} className="flex gap-2 mb-4">
+                                            <input type="text" value={newPdv} onChange={e=>setNewPdv(e.target.value)} placeholder="Nuevo PDV..." className="border border-slate-200 rounded p-2 flex-1 text-sm outline-none focus:border-blue-500" required />
+                                            <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700">Agregar</button>
+                                        </form>
+                                        <ul className="divide-y divide-slate-100">
+                                            {pdvs.map(pdv => (
+                                                <li key={pdv} className="py-3 flex justify-between items-center group">
+                                                    <span className="font-semibold text-slate-600 text-sm">{pdv}</span>
+                                                    <button onClick={()=>handleDeletePdv(pdv)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><IconTrash /></button>
+                                                </li>
+                                            ))}
+                                        </ul>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+
+                    {/* --- MODALES --- */}
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn no-print">
+                            <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                                <div className="p-6 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                                    <h3 className="text-xl font-black text-slate-800">{editingId ? 'Editar Manual' : 'Nuevo Gasto Manual'}</h3>
+                                    <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-800"><IconX /></button>
+                                </div>
+                                <form onSubmit={saveExpense} className="p-6 text-slate-700">
+                                    <div className="grid grid-cols-2 gap-5 mb-5">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Mes</label>
+                                            <input type="month" required className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:border-blue-500" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Monto ($)</label>
+                                            <input type="number" required min="0" step="0.01" className="w-full border border-slate-300 rounded-lg p-3 font-bold text-lg outline-none focus:border-blue-500" value={formData.amount} onChange={e => setFormData({...formData, amount: e.target.value})} />
+                                        </div>
+                                    </div>
+                                    <div className="mb-5">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Concepto</label>
+                                        <input type="text" required className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:border-blue-500" value={formData.concept} onChange={e => setFormData({...formData, concept: e.target.value})} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-5 mb-5">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Categoría</label>
+                                            <select required className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:border-blue-500 bg-white" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
+                                                {categories.map(c => <option key={c} value={c} className="bg-white">{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tipo</label>
+                                            <select required className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:border-blue-500 bg-white" value={formData.type} onChange={e => setFormData({...formData, type: e.target.value})}>
+                                                {EXPENSE_TYPES.map(t => <option key={t} value={t} className="bg-white">{t}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="mb-8">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Punto de Venta</label>
+                                        <select required className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:border-blue-500 bg-white" value={formData.pdv} onChange={e => setFormData({...formData, pdv: e.target.value})}>
+                                            {pdvs.map(p => <option key={p} value={p} className="bg-white">{p}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="flex justify-end gap-3 pt-5 border-t border-slate-100">
+                                        <button type="button" onClick={() => setIsModalOpen(false)} className="px-6 py-3 font-bold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
+                                        <button type="submit" className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl">Guardar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {isNewProrrateoModalOpen && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn no-print">
+                            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+                                <div className="p-6 border-b border-slate-100 bg-purple-50 flex justify-between items-center">
+                                    <h3 className="text-xl font-black text-purple-900">{editingProrrateoId ? 'Editar Regla' : 'Nueva Regla'}</h3>
+                                    <button onClick={() => { setIsNewProrrateoModalOpen(false); setEditingProrrateoId(null); }} className="text-slate-400 hover:text-slate-800"><IconX /></button>
+                                </div>
+                                <form onSubmit={handleSaveProrrateoRule} className="p-6">
+                                    <div className="mb-5">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Nombre del Servicio</label>
+                                        <input type="text" required className="w-full border border-slate-300 rounded-lg p-3 font-bold text-slate-800 outline-none focus:border-purple-500" value={prorrateoFormData.concept} onChange={e => setProrrateoFormData({...prorrateoFormData, concept: e.target.value})} />
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-5 mb-5">
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Categoría</label>
+                                            <select required className="w-full border border-slate-300 rounded-lg p-3 outline-none bg-white" value={prorrateoFormData.category} onChange={e => setProrrateoFormData({...prorrateoFormData, category: e.target.value})}>
+                                                {categories.map(c => <option key={c} value={c} className="bg-white">{c}</option>)}
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Tipo</label>
+                                            <select required className="w-full border border-slate-300 rounded-lg p-3 outline-none bg-white" value={prorrateoFormData.type} onChange={e => setProrrateoFormData({...prorrateoFormData, type: e.target.value})}>
+                                                {EXPENSE_TYPES.map(t => <option key={t} value={t} className="bg-white">{t}</option>)}
+                                            </select>
+                                        </div>
+                                    </div>
+                                    <div className="mb-8">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-3 border-b pb-2">Distribución (Debe sumar 100%)</label>
+                                        <div className="space-y-3">
+                                            {pdvs.map(pdv => (
+                                                <div key={pdv} className="flex items-center gap-3">
+                                                    <span className="flex-1 text-sm font-semibold text-slate-700">{pdv}</span>
+                                                    <div className="relative w-24">
+                                                        <input type="number" min="0" max="100" className="w-full border border-slate-300 rounded p-2 pr-8 text-right font-bold text-purple-700 outline-none focus:border-purple-500" value={prorrateoFormData.percentages[pdv] || ''} onChange={e => setProrrateoFormData({ ...prorrateoFormData, percentages: { ...prorrateoFormData.percentages, [pdv]: e.target.value } })} />
+                                                        <span className="absolute right-3 top-2.5 font-bold text-slate-400">%</span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                    <div className="flex justify-end gap-3 pt-5 border-t border-slate-100">
+                                        <button type="button" onClick={() => { setIsNewProrrateoModalOpen(false); setEditingProrrateoId(null); }} className="px-6 py-3 font-bold text-slate-500 hover:bg-slate-100 rounded-xl">Cancelar</button>
+                                        <button type="submit" className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white font-black rounded-xl">Guardar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {mixedPaymentRowId && (
+                        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md flex items-center justify-center p-4 z-50 animate-fadeIn no-print">
+                            <div className="bg-white border border-slate-200 rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+                                <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
+                                    <h3 className="text-lg font-black text-slate-800 flex items-center gap-2"><IconSplit /> Dividir Pago (Mixto)</h3>
+                                    <button onClick={() => setMixedPaymentRowId(null)} className="text-slate-400 hover:text-slate-800"><IconX /></button>
+                                </div>
+                                <div className="p-6 text-slate-700">
+                                    {(() => {
+                                        const row = gridData.find(r => r.id === mixedPaymentRowId);
+                                        const totalAmount = parseFloat(row?.amount || 0);
+                                        const currentTotal = (parseFloat(mixedData.a1) || 0) + (parseFloat(mixedData.a2) || 0);
+                                        const diff = totalAmount - currentTotal;
+
+                                        return (
+                                            <>
+                                                <div className="bg-blue-50 p-3 rounded-lg mb-5 flex justify-between items-center border border-blue-100">
+                                                    <span className="text-sm font-bold text-blue-800">Monto Total de Fila:</span>
+                                                    <span className="text-lg font-black text-blue-900">{formatCurrency(totalAmount)}</span>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-4 mb-4">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Medio 1</label>
+                                                        <select className="w-full border border-slate-300 rounded p-2 text-sm outline-none bg-white" value={mixedData.m1} onChange={e => setMixedData({...mixedData, m1: e.target.value})}>
+                                                            <option value="" disabled className="bg-white text-slate-800">Seleccionar...</option>
+                                                            {PAYMENT_METHODS.map(m => <option key={m} value={m} className="bg-white text-slate-800">{m}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Monto 1</label>
+                                                        <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-2 text-sm outline-none text-right font-bold bg-white" value={mixedData.a1} onChange={e => {
+                                                            const a1 = e.target.value;
+                                                            const a2 = totalAmount - (parseFloat(a1) || 0);
+                                                            setMixedData({...mixedData, a1, a2: a2 > 0 ? a2.toFixed(2) : ''});
+                                                        }} />
+                                                    </div>
+                                                </div>
+
+                                                <div className="grid grid-cols-2 gap-4 mb-6">
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Medio 2</label>
+                                                        <select className="w-full border border-slate-300 rounded p-2 text-sm outline-none bg-white" value={mixedData.m2} onChange={e => setMixedData({...mixedData, m2: e.target.value})}>
+                                                            <option value="" disabled className="bg-white text-slate-800">Seleccionar...</option>
+                                                            {PAYMENT_METHODS.map(m => <option key={m} value={m} className="bg-white text-slate-800">{m}</option>)}
+                                                        </select>
+                                                    </div>
+                                                    <div>
+                                                        <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Monto 2</label>
+                                                        <input type="number" step="0.01" className="w-full border border-slate-300 rounded p-2 text-sm outline-none text-right font-bold bg-white" value={mixedData.a2} onChange={e => setMixedData({...mixedData, a2: e.target.value})} />
+                                                    </div>
+                                                </div>
+
+                                                {Math.abs(diff) > 0.01 && (
+                                                    <p className="text-xs font-bold text-red-500 mb-4 text-center bg-red-50 p-2 rounded border border-red-100">La suma de los montos no coincide con el total. <br/>Diferencia: {formatCurrency(diff)}</p>
+                                                )}
+
+                                                <div className="flex justify-end gap-3 pt-4 border-t border-slate-100">
+                                                    <button onClick={() => setMixedPaymentRowId(null)} className="px-5 py-2 font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-colors">Cancelar</button>
+                                                    <button onClick={() => {
+                                                        if (Math.abs(diff) > 0.01) return alert("Los montos no cuadran con el total. Revisa la suma.");
+                                                        if (!mixedData.m1 || !mixedData.m2) return alert("Debes seleccionar dos medios de pago.");
+                                                        handleFixedChange(row.id, row.concept, { paymentMethod: 'Mixto', mixedPayments: mixedData });
+                                                        setMixedPaymentRowId(null);
+                                                    }} className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-black rounded-xl shadow-sm transition-colors">Confirmar División</button>
+                                                </div>
+                                            </>
+                                        );
+                                    })()}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        }
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
