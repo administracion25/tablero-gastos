@@ -143,9 +143,32 @@
         const PERIODS = generatePeriods();
         const getPeriodLabel = (val) => PERIODS.find(p => p.value === val)?.label || val;
 
+        // --- DATOS RESTAURADOS ---
+        const INITIAL_DATA = [
+            { id: '1', date: '2026-01', concept: 'Sueldos y Cargas', amount: 35000000, type: 'Sueldo', category: 'Sueldos y Cargas Sociales', pdv: 'Depósito' },
+            { id: '2', date: '2026-01', concept: 'Alquileres Varios', amount: 4800000, type: 'Fijo', category: 'Alquileres', pdv: 'Entre Ríos (Local)' },
+            { id: '6', date: '2026-03', concept: 'Sueldos y Cargas', amount: 38000000, type: 'Sueldo', category: 'Sueldos y Cargas Sociales', pdv: 'Tendens' },
+            { id: '8', date: '2026-04', concept: 'Sueldos 1º y 2º Quincena', amount: 19452735, type: 'Sueldo', category: 'Sueldos y Cargas Sociales', pdv: 'Depósito' },
+            { id: '11', date: '2026-04', concept: 'Alquiler', amount: 2286400, type: 'Fijo', category: 'Alquileres', pdv: 'Depósito' },
+            { id: '17', date: '2026-04', concept: 'TDC MACRO', amount: 1461000, type: 'Fijo', category: 'Comisiones y Honorarios', pdv: 'Mauricio (CEO)' },
+        ];
+
         const INITIAL_CATEGORIES = ['Sueldos y Cargas Sociales', 'Alquileres', 'Impuestos y Tasas', 'Servicios', 'Comisiones y Honorarios', 'Mantenimiento', 'Marketing', 'Otros / Dirección'];
         const INITIAL_PDVS = ['Depósito', 'Entre Ríos (Local)', 'Tendens', 'Chajarí', 'Mauricio (CEO)'];
-        const INITIAL_FIXED_CONCEPTS = ['Coop. Electrica', 'Internet Megacable', 'Alquiler', 'Expensas', 'Sueldos'];
+        const INITIAL_FIXED_CONCEPTS = [
+            'FAECYS Patricia', 'FAECYS Modashop', 'INACAP Patricia', 'INACAP Modashop',
+            'OSECAC Modashop', 'OSECAC Patricia', 'Centro Empleado Comercio Patricia',
+            'Centro Empleado Comercio Modashop', 'Centro Empleado Comercio Chajari',
+            'Tasa Comercial Mauricio', 'Tasa Comercial Patricia', 'Tasa Comercial Modashop',
+            'Monotributo Patricia', 'Academia Modashop - Mariel', 'Expensas Bs As',
+            'Correo Argentino', 'OCA', 'Personal WIFI Entre Rios', 'Personal Abono Urdinarrain',
+            'Abono Claro (lineas modashop)', 'ITEL Wifi Chajari', 'Internet Megacable Tendens',
+            'Internet Plus Modashop', 'ATER Impuesto Automotor', '931 Modashop',
+            'Coop. Electrica Chajari', 'Coop. Electrica Modashop', 'Coop. Electrica Tendens',
+            'Coop. Electrica Mauricio', 'Alquiler deposito', 'Alquiler Tendens',
+            'Alquiler Mauricio', 'Expensas Mauricio', 'Gasnea Mauricio',
+            'Accidentes Personales', 'Seguro Automovil'
+        ];
         const EXPENSE_TYPES = ['Fijo', 'Variable / Extraordinario', 'Sueldo', 'Otro'];
         const PAYMENT_METHODS = ['Mercado Pago Modashop', 'Mercado Pago Tendens', 'Banco Macro', 'Banco BBVA', 'Banco Entre Rios', 'Caja'];
         const COLORS = ['#3b82f6', '#10b981', '#f59e0b', '#ef4444', '#8b5cf6', '#06b6d4', '#f43f5e', '#84cc16', '#64748b'];
@@ -159,7 +182,7 @@
             const [pdvs, setPdvs] = useLocalStorage('tablero_pdvs', INITIAL_PDVS);
             const [fixedConceptsList, setFixedConceptsList] = useLocalStorage('tablero_fixed_concepts', INITIAL_FIXED_CONCEPTS);
             
-            const [expenses, setExpenses] = useLocalStorage('tablero_expenses', []);
+            const [expenses, setExpenses] = useLocalStorage('tablero_expenses', INITIAL_DATA);
             const [fixedExpenses, setFixedExpenses] = useLocalStorage('tablero_fixed_expenses', []);
             const [prorrateoRules, setProrrateoRules] = useLocalStorage('tablero_prorrateo_rules', []);
 
