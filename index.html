@@ -68,6 +68,40 @@
         const IconActivity = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline></svg>;
         const IconPie = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21.21 15.89A10 10 0 1 1 8 2.83"></path><path d="M22 12A10 10 0 0 0 12 2v10z"></path></svg>;
 
+        // --- SISTEMA ANTIBLOQUEO (ERROR BOUNDARY) ---
+        class ErrorBoundary extends React.Component {
+            constructor(props) {
+                super(props);
+                this.state = { hasError: false, errorInfo: null };
+            }
+            static getDerivedStateFromError(error) {
+                return { hasError: true, errorInfo: error };
+            }
+            render() {
+                if (this.state.hasError) {
+                    return (
+                        <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 p-6 text-center">
+                            <div className="bg-white p-8 rounded-2xl shadow-xl max-w-lg w-full border border-red-100">
+                                <h2 className="text-2xl font-black text-red-600 mb-4">Error de Sincronización Local</h2>
+                                <p className="text-slate-600 mb-6 font-medium">Parece que hay datos residuales con formato incorrecto guardados en tu navegador debido a las pruebas anteriores. Esto está bloqueando la pantalla.</p>
+                                <button 
+                                    onClick={() => { 
+                                        window.localStorage.clear(); 
+                                        window.location.reload(); 
+                                    }} 
+                                    className="w-full bg-red-600 hover:bg-red-700 text-white font-bold py-3 px-4 rounded-xl shadow-md transition-colors"
+                                >
+                                    Restaurar Tablero (Borrar Caché Local)
+                                </button>
+                                <p className="text-[10px] text-slate-400 mt-4 font-mono break-words">{this.state.errorInfo?.toString()}</p>
+                            </div>
+                        </div>
+                    );
+                }
+                return this.props.children;
+            }
+        }
+
         // --- HOOK PERSISTENCIA LOCALSTORAGE ---
         function useLocalStorage(key, initialValue) {
             const [storedValue, setStoredValue] = useState(() => {
@@ -155,7 +189,7 @@
 
             const getColorForPDV = useCallback((pdvName) => {
                 if (pdvName === 'Mauricio (CEO)') return '#8b5cf6';
-                const idx = pdvs.findIndex(p => p === pdvName);
+                const idx = (pdvs || []).findIndex(p => p === pdvName);
                 if (idx === -1) return '#94a3b8';
                 const PALETTE = ['#f59e0b', '#3b82f6', '#10b981', '#ef4444', '#06b6d4', '#f43f5e', '#84cc16'];
                 return PALETTE[idx % PALETTE.length];
@@ -165,7 +199,7 @@
                 const headers = ["ID", "Mes", "Concepto", "Categoría", "Punto_de_Venta", "Tipo", "Monto", "Es_Prorrateo", "Es_Planilla"];
                 const csvContent = [
                     headers.join(","),
-                    ...expenses.map(e => [
+                    ...(expenses || []).map(e => [
                         e.id, e.date, `"${e.concept}"`, `"${e.category}"`, `"${e.pdv}"`, e.type, e.amount, 
                         e.isProrrateo ? 'SI' : 'NO', e.isLinked ? 'SI' : 'NO'
                     ].join(","))
@@ -182,11 +216,14 @@
 
             const handlePrint = () => window.print();
 
-            // -- FILTRADOS Y DATA PARA GRÁFICOS --
+            // -- FILTRADOS Y DATA PARA GRÁFICOS (CON PROGRAMACIÓN DEFENSIVA PARA EVITAR CRASHES) --
             const filteredData = useMemo(() => {
-                return expenses.filter(exp => {
-                    const matchMonth = selectedMonth === 'All' || exp.date.startsWith(selectedMonth);
-                    const matchPDV = selectedPDV === 'All' || exp.pdv === selectedPDV;
+                return (expenses || []).filter(exp => {
+                    if (!exp) return false;
+                    const d = exp.date || '';
+                    const p = exp.pdv || '';
+                    const matchMonth = selectedMonth === 'All' || d.startsWith(selectedMonth);
+                    const matchPDV = selectedPDV === 'All' || p === selectedPDV;
                     return matchMonth && matchPDV;
                 });
             }, [expenses, selectedMonth, selectedPDV]);
@@ -194,28 +231,36 @@
             const kpis = useMemo(() => {
                 let total = 0, fixed = 0, extra = 0, ceo = 0, pdvTotal = 0;
                 filteredData.forEach(exp => {
-                    total += exp.amount;
-                    if (exp.type === 'Fijo' || exp.type === 'Sueldo') fixed += exp.amount;
-                    else extra += exp.amount; 
-                    if (exp.pdv === 'Mauricio (CEO)') ceo += exp.amount;
-                    else if (exp.pdv !== 'Todos') pdvTotal += exp.amount;
+                    if (!exp) return;
+                    const amt = parseFloat(exp.amount) || 0;
+                    total += amt;
+                    if (exp.type === 'Fijo' || exp.type === 'Sueldo') fixed += amt;
+                    else extra += amt; 
+                    if (exp.pdv === 'Mauricio (CEO)') ceo += amt;
+                    else if (exp.pdv !== 'Todos') pdvTotal += amt;
                 });
                 return { total, fixed, extra, ceo, pdvTotal };
             }, [filteredData]);
 
             const globalFilteredData = useMemo(() => {
-                return expenses.filter(exp => selectedMonth === 'All' || exp.date.startsWith(selectedMonth));
+                return (expenses || []).filter(exp => {
+                    if (!exp) return false;
+                    return selectedMonth === 'All' || (exp.date || '').startsWith(selectedMonth);
+                });
             }, [expenses, selectedMonth]);
             
-            const globalTotal = useMemo(() => globalFilteredData.reduce((acc, exp) => acc + exp.amount, 0), [globalFilteredData]);
-            const totalDetalleOperativo = useMemo(() => filteredData.reduce((acc, curr) => acc + curr.amount, 0), [filteredData]);
+            const globalTotal = useMemo(() => globalFilteredData.reduce((acc, exp) => acc + (parseFloat(exp?.amount) || 0), 0), [globalFilteredData]);
+            const totalDetalleOperativo = useMemo(() => filteredData.reduce((acc, curr) => acc + (parseFloat(curr?.amount) || 0), 0), [filteredData]);
 
             const pdvData = useMemo(() => {
                 const acc = {};
                 let totalFiltered = 0;
                 filteredData.forEach(exp => { 
-                    acc[exp.pdv] = (acc[exp.pdv] || 0) + exp.amount; 
-                    totalFiltered += exp.amount;
+                    if (!exp) return;
+                    const p = exp.pdv || 'Sin PDV';
+                    const a = parseFloat(exp.amount) || 0;
+                    acc[p] = (acc[p] || 0) + a; 
+                    totalFiltered += a;
                 });
                 return Object.entries(acc).map(([name, value]) => ({ 
                     name, 
@@ -226,26 +271,37 @@
 
             const stackedBarData = useMemo(() => {
                 const acc = {};
-                expenses.forEach(exp => {
-                    if (selectedPDV !== 'All' && exp.pdv !== selectedPDV) return;
-                    if (!acc[exp.date]) acc[exp.date] = { month: exp.date, Total: 0 };
-                    acc[exp.date][exp.category] = (acc[exp.date][exp.category] || 0) + exp.amount;
-                    acc[exp.date].Total += exp.amount;
+                (expenses || []).forEach(exp => {
+                    if (!exp) return;
+                    const d = exp.date || 'Sin Fecha';
+                    const c = exp.category || 'Otros';
+                    const p = exp.pdv || '';
+                    const a = parseFloat(exp.amount) || 0;
+                    
+                    if (selectedPDV !== 'All' && p !== selectedPDV) return;
+                    if (!acc[d]) acc[d] = { month: d, Total: 0 };
+                    acc[d][c] = (acc[d][c] || 0) + a;
+                    acc[d].Total += a;
                 });
                 return Object.values(acc).sort((a, b) => a.month.localeCompare(b.month));
             }, [expenses, selectedPDV]);
 
             const comparativeData = useMemo(() => {
-                const periodTotals = compPeriods.map(period => {
-                    const data = expenses.filter(e => e.date === period || e.date.startsWith(`${period}-`));
-                    return { period, total: data.reduce((s, e) => s + e.amount, 0), data };
+                const safeCompPeriods = compPeriods || [];
+                const periodTotals = safeCompPeriods.map(period => {
+                    const data = (expenses || []).filter(e => {
+                        if (!e) return false;
+                        const d = e.date || '';
+                        return d === period || d.startsWith(`${period}-`);
+                    });
+                    return { period, total: data.reduce((s, e) => s + (parseFloat(e.amount)||0), 0), data };
                 });
 
-                const catComp = categories.map(cat => {
+                const catComp = (categories || []).map(cat => {
                     const obj = { name: cat };
                     let hasData = false;
-                    compPeriods.forEach((period, idx) => {
-                        const catTotal = periodTotals[idx].data.filter(e => e.category === cat).reduce((s, e) => s + e.amount, 0);
+                    safeCompPeriods.forEach((period, idx) => {
+                        const catTotal = periodTotals[idx].data.filter(e => (e.category || '') === cat).reduce((s, e) => s + (parseFloat(e.amount)||0), 0);
                         obj[period] = catTotal;
                         if (catTotal > 0) hasData = true;
                     });
@@ -255,7 +311,7 @@
                 let variance = 0;
                 let diagnostic = '';
                 
-                if (compPeriods.length >= 2) {
+                if (safeCompPeriods.length >= 2) {
                     const firstPeriod = periodTotals[0];
                     const lastPeriod = periodTotals[periodTotals.length - 1];
                     const totalStart = firstPeriod.total;
@@ -278,7 +334,7 @@
                         let maxChangeVal = 0;
                         
                         catComp.forEach(c => {
-                            const vals = compPeriods.map(p => c[p] || 0);
+                            const vals = safeCompPeriods.map(p => c[p] || 0);
                             const minVal = Math.min(...vals);
                             const maxVal = Math.max(...vals);
                             const diff = maxVal - minVal;
@@ -306,7 +362,7 @@
                 if (editingId) {
                     setExpenses(prev => prev.map(exp => exp.id === editingId ? expData : exp));
                 } else {
-                    setExpenses(prev => [...prev, expData]);
+                    setExpenses(prev => [...(prev || []), expData]);
                 }
                 
                 setIsModalOpen(false);
@@ -315,7 +371,7 @@
             };
 
             const deleteExpense = (id) => {
-                const exp = expenses.find(e => e.id === id);
+                const exp = (expenses || []).find(e => e && e.id === id);
                 
                 if(exp && exp.isLinked && !exp.isProrrateo) { 
                     alert("Para anular este pago, ve a la Planilla Mensual y pásalo a 'Pendiente'."); 
@@ -323,13 +379,13 @@
                 }
                 if(exp && exp.isProrrateo) {
                     if(window.confirm('Este es un fragmento de prorrateo. Borrarlo eliminará todos los porcentajes de esa factura en este mes. ¿Continuar?')) {
-                        setExpenses(prev => prev.filter(e => e.parentFixedId !== exp.parentFixedId));
-                        setFixedExpenses(prev => prev.map(f => f.id === exp.parentFixedId ? { ...f, status: 'Pendiente' } : f));
+                        setExpenses(prev => (prev || []).filter(e => e && e.parentFixedId !== exp.parentFixedId));
+                        setFixedExpenses(prev => (prev || []).map(f => f && f.id === exp.parentFixedId ? { ...f, status: 'Pendiente' } : f));
                     }
                     return;
                 }
                 if(window.confirm('¿Eliminar registro manual?')) {
-                    setExpenses(prev => prev.filter(e => e.id !== id));
+                    setExpenses(prev => (prev || []).filter(e => e && e.id !== id));
                 }
             };
 
@@ -342,9 +398,9 @@
                 const ruleData = { ...prorrateoFormData, id: ruleId };
 
                 if (editingProrrateoId) {
-                    setProrrateoRules(prev => prev.map(r => r.id === editingProrrateoId ? ruleData : r));
+                    setProrrateoRules(prev => (prev || []).map(r => r && r.id === editingProrrateoId ? ruleData : r));
                 } else {
-                    setProrrateoRules(prev => [...prev, ruleData]);
+                    setProrrateoRules(prev => [...(prev || []), ruleData]);
                 }
                 
                 setIsNewProrrateoModalOpen(false);
@@ -359,46 +415,48 @@
 
             const handleDeleteProrrateoRule = (id) => {
                 if (window.confirm('¿Seguro que deseas eliminar esta regla?')) {
-                    setProrrateoRules(prev => prev.filter(r => r.id !== id));
+                    setProrrateoRules(prev => (prev || []).filter(r => r && r.id !== id));
                 }
             };
 
             const handleAddCategory = (e) => { 
                 e.preventDefault(); 
-                if(newCategory && !categories.includes(newCategory)) { 
-                    setCategories(prev => [...prev, newCategory]);
+                if(newCategory && !(categories || []).includes(newCategory)) { 
+                    setCategories(prev => [...(prev || []), newCategory]);
                     setNewCategory(''); 
                 }
             };
             const handleDeleteCategory = (cat) => { 
-                if(expenses.some(e => e.category === cat)) { alert("Hay gastos en esta categoría."); return; } 
-                setCategories(prev => prev.filter(c => c !== cat));
+                if((expenses || []).some(e => e && e.category === cat)) { alert("Hay gastos en esta categoría."); return; } 
+                setCategories(prev => (prev || []).filter(c => c !== cat));
             };
             
             const handleAddPdv = (e) => { 
                 e.preventDefault(); 
-                if(newPdv && !pdvs.includes(newPdv)) { 
-                    setPdvs(prev => [...prev, newPdv]);
+                if(newPdv && !(pdvs || []).includes(newPdv)) { 
+                    setPdvs(prev => [...(prev || []), newPdv]);
                     setNewPdv(''); 
                 }
             };
             const handleDeletePdv = (pdv) => { 
-                if(expenses.some(e => e.pdv === pdv)) { alert("Hay gastos en este PDV."); return; } 
-                setPdvs(prev => prev.filter(p => p !== pdv));
+                if((expenses || []).some(e => e && e.pdv === pdv)) { alert("Hay gastos en este PDV."); return; } 
+                setPdvs(prev => (prev || []).filter(p => p !== pdv));
             };
 
             // -- LÓGICA PLANILLA MENSUAL --
             const gridData = useMemo(() => {
                 const rowsMap = new Map();
-                fixedConceptsList.forEach(concept => rowsMap.set(concept, { id: `temp-${concept}-${selectedFixedMonth}`, month: selectedFixedMonth, concept, amount: '', pdv: '', type: 'Fijo', status: 'Pendiente', dueDate: '', paymentDate: '', paymentMethod: '', isProrrateoRule: false }));
-                prorrateoRules.forEach(rule => rowsMap.set(rule.concept, { id: `temp-${rule.concept}-${selectedFixedMonth}`, month: selectedFixedMonth, concept: rule.concept, amount: '', pdv: 'Múltiple (Prorrateo)', type: rule.type, status: 'Pendiente', dueDate: '', paymentDate: '', paymentMethod: '', isProrrateoRule: true, rule: rule }));
+                (fixedConceptsList || []).forEach(concept => rowsMap.set(concept, { id: `temp-${concept}-${selectedFixedMonth}`, month: selectedFixedMonth, concept, amount: '', pdv: '', type: 'Fijo', status: 'Pendiente', dueDate: '', paymentDate: '', paymentMethod: '', isProrrateoRule: false }));
+                (prorrateoRules || []).forEach(rule => {
+                    if (rule) rowsMap.set(rule.concept, { id: `temp-${rule.concept}-${selectedFixedMonth}`, month: selectedFixedMonth, concept: rule.concept, amount: '', pdv: 'Múltiple (Prorrateo)', type: rule.type, status: 'Pendiente', dueDate: '', paymentDate: '', paymentMethod: '', isProrrateoRule: true, rule: rule });
+                });
 
-                const historicalForMonth = fixedExpenses.filter(f => f.month === selectedFixedMonth);
+                const historicalForMonth = (fixedExpenses || []).filter(f => f && f.month === selectedFixedMonth);
                 historicalForMonth.forEach(hist => {
-                    if (rowsMap.has(hist.concept)) {
+                    if (hist && rowsMap.has(hist.concept)) {
                         const base = rowsMap.get(hist.concept);
                         rowsMap.set(hist.concept, { ...base, ...hist, isProrrateoRule: base.isProrrateoRule, rule: (hist.status === 'Pagado' && hist.ruleSnapshot) ? hist.ruleSnapshot : base.rule });
-                    } else {
+                    } else if (hist) {
                         rowsMap.set(hist.concept, { ...hist, isProrrateoRule: hist.isProrrateoRule || false, rule: hist.ruleSnapshot || null });
                     }
                 });
@@ -412,7 +470,7 @@
             }, [fixedConceptsList, prorrateoRules, fixedExpenses, selectedFixedMonth]);
 
             const handleFixedChange = (id, concept, fieldOrUpdates, value) => {
-                const existing = fixedExpenses.find(f => f.id === id);
+                const existing = (fixedExpenses || []).find(f => f && f.id === id);
                 const isObjectUpdate = typeof fieldOrUpdates === 'object' && fieldOrUpdates !== null;
                 const updates = isObjectUpdate ? fieldOrUpdates : { [fieldOrUpdates]: value };
                 
@@ -423,12 +481,12 @@
                 }
                 
                 if (existing) {
-                    setFixedExpenses(prev => prev.map(f => f.id === id ? { ...f, ...updates } : f));
+                    setFixedExpenses(prev => (prev || []).map(f => f && f.id === id ? { ...f, ...updates } : f));
                 } else {
                     const newId = Date.now().toString();
                     const newObj = { id: newId, month: selectedFixedMonth, concept, amount: '', pdv: '', type: 'Fijo', status: 'Pendiente', dueDate: '', paymentDate: '', paymentMethod: '', ...updates };
                     
-                    const ruleInfo = prorrateoRules.find(r => r.concept === concept);
+                    const ruleInfo = (prorrateoRules || []).find(r => r && r.concept === concept);
                     if (ruleInfo) {
                         newObj.isProrrateoRule = true;
                         newObj.rule = ruleInfo;
@@ -436,7 +494,7 @@
                         newObj.type = ruleInfo.type;
                     }
                     
-                    setFixedExpenses(prev => [...prev, newObj]);
+                    setFixedExpenses(prev => [...(prev || []), newObj]);
                 }
             };
 
@@ -462,9 +520,9 @@
 
                 // Guardar la Planilla
                 if (item.id.startsWith('temp-')) {
-                    setFixedExpenses(prev => [...prev, updatedFixedRecord]);
+                    setFixedExpenses(prev => [...(prev || []), updatedFixedRecord]);
                 } else {
-                    setFixedExpenses(prev => prev.map(f => f.id === item.id ? updatedFixedRecord : f));
+                    setFixedExpenses(prev => (prev || []).map(f => f && f.id === item.id ? updatedFixedRecord : f));
                 }
 
                 if (newStatus === 'Pagado') {
@@ -512,10 +570,10 @@
                     });
                     
                     // Inyectar al Dashboard
-                    setExpenses(prev => [...prev, ...newSplits]);
+                    setExpenses(prev => [...(prev || []), ...newSplits]);
                 } else {
                     // Borrar del Dashboard
-                    setExpenses(prev => prev.filter(e => e.parentFixedId !== finalId));
+                    setExpenses(prev => (prev || []).filter(e => e && e.parentFixedId !== finalId));
                 }
             };
 
@@ -528,17 +586,17 @@
                 if (row.isProrrateoRule) {
                     if (window.confirm(`"${row.concept}" es una Regla de Prorrateo.\n\n¿Deseas ELIMINAR esta regla del sistema? (Desaparecerá de todos los meses futuros).`)) {
                         if (row.rule && row.rule.id) {
-                            setProrrateoRules(prev => prev.filter(r => r.id !== row.rule.id));
+                            setProrrateoRules(prev => (prev || []).filter(r => r && r.id !== row.rule.id));
                         }
                         if (!row.id.startsWith('temp-')) {
-                            setFixedExpenses(prev => prev.filter(f => f.id !== row.id));
+                            setFixedExpenses(prev => (prev || []).filter(f => f && f.id !== row.id));
                         }
                     }
                 } else {
                     if (window.confirm(`¿Deseas ELIMINAR el concepto "${row.concept}" de la planilla base?`)) {
-                        setFixedConceptsList(prev => prev.filter(c => c !== row.concept));
+                        setFixedConceptsList(prev => (prev || []).filter(c => c !== row.concept));
                         if (!row.id.startsWith('temp-')) {
-                            setFixedExpenses(prev => prev.filter(f => f.id !== row.id));
+                            setFixedExpenses(prev => (prev || []).filter(f => f && f.id !== row.id));
                         }
                     }
                 }
@@ -552,9 +610,9 @@
                         <div>
                             <h1 className="text-2xl md:text-3xl font-black text-slate-900 flex items-center gap-3 tracking-tight">
                                 <div className="bg-blue-600 text-white p-2 rounded-xl shadow-md"><IconDashboard /></div>
-                                Tablero Gastos Cloud
+                                Tablero Gastos
                             </h1>
-                            <p className="text-slate-500 mt-1 font-medium ml-12">Gestión y Prorrateo Automático - <span className="text-blue-500 font-bold">📂 Almacenamiento Local</span></p>
+                            <p className="text-slate-500 mt-1 font-medium ml-12">Gestión y Prorrateo Automático - <span className="text-blue-500 font-bold">📂 Sistema Guardado Seguro</span></p>
                         </div>
                         
                         <div className="flex flex-wrap bg-slate-100 p-1 rounded-xl w-full xl:w-auto gap-1">
@@ -597,7 +655,7 @@
                                         <div className="text-slate-400 ml-2"><IconMapPin /></div>
                                         <select className="bg-transparent border-none text-sm font-bold text-slate-700 focus:ring-0 cursor-pointer pl-2 py-2 outline-none" value={selectedPDV} onChange={(e) => setSelectedPDV(e.target.value)}>
                                             <option value="All">Todos los PDV</option>
-                                            {pdvs.map(p => <option key={p} value={p}>{p}</option>)}
+                                            {(pdvs || []).map(p => <option key={p} value={p}>{p}</option>)}
                                         </select>
                                     </div>
                                 </div>
@@ -625,8 +683,8 @@
                                         <div className="text-right"><p className="text-xs text-slate-400 font-bold">Variables/Extra.</p><p className="text-lg font-black text-amber-500">{formatCurrency(kpis.extra)}</p></div>
                                     </div>
                                     <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden flex">
-                                        <div className="bg-emerald-500 h-full" style={{ width: `${(kpis.fixed/kpis.total)*100 || 0}%` }}></div>
-                                        <div className="bg-amber-500 h-full" style={{ width: `${(kpis.extra/kpis.total)*100 || 0}%` }}></div>
+                                        <div className="bg-emerald-500 h-full" style={{ width: `${kpis.total ? (kpis.fixed/kpis.total)*100 : 0}%` }}></div>
+                                        <div className="bg-amber-500 h-full" style={{ width: `${kpis.total ? (kpis.extra/kpis.total)*100 : 0}%` }}></div>
                                     </div>
                                 </div>
                                 {selectedPDV === 'All' && (
@@ -638,8 +696,8 @@
                                             <div className="text-right"><p className="text-xs text-slate-400 font-bold">Dirección CEO</p><p className="text-lg font-black text-purple-600">{formatCurrency(kpis.ceo)}</p></div>
                                         </div>
                                         <div className="w-full bg-slate-100 h-1.5 rounded-full mt-3 overflow-hidden flex">
-                                            <div className="bg-slate-700 h-full" style={{ width: `${(kpis.pdvTotal/kpis.total)*100 || 0}%` }}></div>
-                                            <div className="bg-purple-500 h-full" style={{ width: `${(kpis.ceo/kpis.total)*100 || 0}%` }}></div>
+                                            <div className="bg-slate-700 h-full" style={{ width: `${kpis.total ? (kpis.pdvTotal/kpis.total)*100 : 0}%` }}></div>
+                                            <div className="bg-purple-500 h-full" style={{ width: `${kpis.total ? (kpis.ceo/kpis.total)*100 : 0}%` }}></div>
                                         </div>
                                     </div>
                                 )}
@@ -656,7 +714,7 @@
                                                 <YAxis stroke="#94a3b8" tick={{fill: '#94a3b8', fontSize: 12, fontWeight: 600}} tickFormatter={(val) => `$${(val/1000000).toFixed(1)}M`} />
                                                 <Tooltip formatter={(value) => formatCurrency(value)} contentStyle={{borderRadius: '12px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)'}} />
                                                 <Legend wrapperStyle={{ fontSize: '11px', fontWeight: 600 }} />
-                                                {categories.map((cat, idx) => <Bar key={cat} dataKey={cat} stackId="a" fill={COLORS[idx % COLORS.length]} />)}
+                                                {(categories || []).map((cat, idx) => <Bar key={cat} dataKey={cat} stackId="a" fill={COLORS[idx % COLORS.length]} />)}
                                             </BarChart>
                                         </ResponsiveContainer>
                                     </div>
@@ -784,7 +842,7 @@
                                 <div className="flex gap-2 w-full sm:w-auto">
                                     <button onClick={() => { 
                                         const c = prompt("Nuevo concepto manual para la Planilla Fija:"); 
-                                        if(c && !fixedConceptsList.includes(c)) setFixedConceptsList(prev => [...prev, c]); 
+                                        if(c && !(fixedConceptsList || []).includes(c)) setFixedConceptsList(prev => [...(prev || []), c]); 
                                     }} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-lg flex items-center font-bold shadow-md gap-2 flex-1 sm:flex-none justify-center">
                                         <IconPlus /> Nueva Fila
                                     </button>
@@ -854,7 +912,7 @@
                                                         ) : (
                                                             <select className="w-full bg-transparent border-none outline-none text-slate-700 font-bold" value={row.pdv} onChange={(e) => handleFixedChange(row.id, row.concept, 'pdv', e.target.value)}>
                                                                 <option value="" disabled className="text-slate-800 bg-white">- Asignar -</option>
-                                                                {pdvs.map(p => <option key={p} value={p} className="text-slate-800 bg-white">{p}</option>)}
+                                                                {(pdvs || []).map(p => <option key={p} value={p} className="text-slate-800 bg-white">{p}</option>)}
                                                             </select>
                                                         )}
                                                     </td>
@@ -887,7 +945,7 @@
                                         <div className="text-slate-300 ml-2"><IconMapPin /></div>
                                         <select className="bg-transparent border-none font-bold text-white focus:ring-0 cursor-pointer pl-2 py-1 outline-none" value={selectedPDV} onChange={(e) => setSelectedPDV(e.target.value)}>
                                             <option value="All" className="text-slate-800 bg-white">Todos los PDV</option>
-                                            {pdvs.map(p => <option key={p} value={p} className="text-slate-800 bg-white">{p}</option>)}
+                                            {(pdvs || []).map(p => <option key={p} value={p} className="text-slate-800 bg-white">{p}</option>)}
                                         </select>
                                     </div>
                                 </div>
@@ -957,12 +1015,12 @@
                             </div>
 
                             <div className="grid grid-cols-1 gap-6">
-                                {prorrateoRules.length === 0 && (
+                                {(prorrateoRules || []).length === 0 && (
                                     <div className="text-center p-12 bg-white rounded-2xl border border-dashed border-slate-300">
                                         <p className="text-slate-400 font-medium">No tienes reglas de prorrateo configuradas.</p>
                                     </div>
                                 )}
-                                {prorrateoRules.map(rule => (
+                                {(prorrateoRules || []).map(rule => rule && (
                                     <div key={rule.id} className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                                         <div className="p-5 border-b border-slate-100 flex justify-between items-center bg-slate-50">
                                             <div>
@@ -978,7 +1036,7 @@
                                             <div>
                                                 <h4 className="text-xs font-bold text-slate-400 uppercase mb-3">Distribución Fija</h4>
                                                 <div className="space-y-2">
-                                                    {Object.entries(rule.percentages).map(([pdv, pct]) => parseFloat(pct) > 0 && (
+                                                    {Object.entries(rule.percentages || {}).map(([pdv, pct]) => parseFloat(pct) > 0 && (
                                                         <div key={pdv} className="flex justify-between items-center bg-slate-50 p-2 rounded border border-slate-100">
                                                             <span className="font-semibold text-slate-700 text-sm">{pdv}</span>
                                                             <span className="font-black text-purple-600 text-sm">{pct}%</span>
@@ -1015,7 +1073,7 @@
                                             <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700">Agregar</button>
                                         </form>
                                         <ul className="divide-y divide-slate-100">
-                                            {categories.map(cat => (
+                                            {(categories || []).map(cat => (
                                                 <li key={cat} className="py-3 flex justify-between items-center group">
                                                     <span className="font-semibold text-slate-600 text-sm">{cat}</span>
                                                     <button onClick={()=>handleDeleteCategory(cat)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><IconTrash /></button>
@@ -1033,7 +1091,7 @@
                                             <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded text-sm font-bold hover:bg-blue-700">Agregar</button>
                                         </form>
                                         <ul className="divide-y divide-slate-100">
-                                            {pdvs.map(pdv => (
+                                            {(pdvs || []).map(pdv => (
                                                 <li key={pdv} className="py-3 flex justify-between items-center group">
                                                     <span className="font-semibold text-slate-600 text-sm">{pdv}</span>
                                                     <button onClick={()=>handleDeletePdv(pdv)} className="text-slate-300 hover:text-red-500 opacity-0 group-hover:opacity-100"><IconTrash /></button>
@@ -1075,7 +1133,7 @@
                                         <div>
                                             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Categoría</label>
                                             <select required className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:border-blue-500 bg-white" value={formData.category} onChange={e => setFormData({...formData, category: e.target.value})}>
-                                                {categories.map(c => <option key={c} value={c} className="bg-white">{c}</option>)}
+                                                {(categories || []).map(c => <option key={c} value={c} className="bg-white">{c}</option>)}
                                             </select>
                                         </div>
                                         <div>
@@ -1088,7 +1146,7 @@
                                     <div className="mb-8">
                                         <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Punto de Venta</label>
                                         <select required className="w-full border border-slate-300 rounded-lg p-3 font-medium outline-none focus:border-blue-500 bg-white" value={formData.pdv} onChange={e => setFormData({...formData, pdv: e.target.value})}>
-                                            {pdvs.map(p => <option key={p} value={p} className="bg-white">{p}</option>)}
+                                            {(pdvs || []).map(p => <option key={p} value={p} className="bg-white">{p}</option>)}
                                         </select>
                                     </div>
                                     <div className="flex justify-end gap-3 pt-5 border-t border-slate-100">
@@ -1116,7 +1174,7 @@
                                         <div>
                                             <label className="block text-xs font-bold text-slate-500 uppercase mb-2">Categoría</label>
                                             <select required className="w-full border border-slate-300 rounded-lg p-3 outline-none bg-white" value={prorrateoFormData.category} onChange={e => setProrrateoFormData({...prorrateoFormData, category: e.target.value})}>
-                                                {categories.map(c => <option key={c} value={c} className="bg-white">{c}</option>)}
+                                                {(categories || []).map(c => <option key={c} value={c} className="bg-white">{c}</option>)}
                                             </select>
                                         </div>
                                         <div>
@@ -1129,7 +1187,7 @@
                                     <div className="mb-8">
                                         <label className="block text-xs font-bold text-slate-500 uppercase mb-3 border-b pb-2">Distribución (Debe sumar 100%)</label>
                                         <div className="space-y-3">
-                                            {pdvs.map(pdv => (
+                                            {(pdvs || []).map(pdv => (
                                                 <div key={pdv} className="flex items-center gap-3">
                                                     <span className="flex-1 text-sm font-semibold text-slate-700">{pdv}</span>
                                                     <div className="relative w-24">
@@ -1158,7 +1216,7 @@
                                 </div>
                                 <div className="p-6 text-slate-700">
                                     {(() => {
-                                        const row = gridData.find(r => r.id === mixedPaymentRowId);
+                                        const row = gridData.find(r => r && r.id === mixedPaymentRowId);
                                         const totalAmount = parseFloat(row?.amount || 0);
                                         const currentTotal = (parseFloat(mixedData.a1) || 0) + (parseFloat(mixedData.a2) || 0);
                                         const diff = totalAmount - currentTotal;
@@ -1227,7 +1285,11 @@
         }
 
         const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
+        root.render(
+            <ErrorBoundary>
+                <App />
+            </ErrorBoundary>
+        );
     </script>
 </body>
 </html>
